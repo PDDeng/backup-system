@@ -1,13 +1,13 @@
 {
-  "active_leader": "codex-lead",
-  "epoch": 1,
+  "active_leader": "gemini-deputy",
+  "epoch": 2,
   "status": "manual_coordination",
-  "last_heartbeat_at": null,
-  "handoff_from": null,
-  "handoff_to": null,
-  "handoff_reason": null,
-  "handoff_commit": null,
-  "acknowledged_by": null,
+  "last_heartbeat_at": "2026-11-25T18:55:00+08:00",
+  "handoff_from": "codex-lead",
+  "handoff_to": "gemini-deputy",
+  "handoff_reason": "explicit_handoff",
+  "handoff_commit": "5bcb5b5",
+  "acknowledged_by": "gemini-deputy",
   "production_writer": null,
-  "note": "声明性初始状态，未连接任何外部 AI 调度器；不构成生产变更锁。"
+  "note": "Codex 休息，由人类负责人确认交接给 Gemini（gemini-deputy）临时协调；未连接外部自动调度器，不构成生产变更锁。本次阶段不触碰生产备份任务。"
 }

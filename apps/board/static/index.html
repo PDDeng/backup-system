@@ -1,11 +1,402 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>核心资产保护 · 管理驾驶舱</title><link rel="stylesheet" href="/static/style.css"></head><body>
-<div id="login" class="login"><section><div class="mark">◈</div><p class="eyebrow">CORE ASSET PROTECTION</p><h1>让每一份核心数据<br>都有可追溯的保护</h1><p class="muted">备份结果 · 多端副本 · 恢复验证</p><form id="loginform"><label>账号<input id="username" autocomplete="username" required></label><label>密码<input id="password" type="password" autocomplete="current-password" required></label><button class="primary">登录控制台 →</button></form><p id="loginerror" role="alert"></p><small>内部管理平台 · 请使用分配的账号登录</small></section></div>
-<div id="board" hidden><header><div class="brand"><span class="mark">◈</span><div><p class="eyebrow">CORE ASSET PROTECTION</p><h1>核心资产备份驾驶舱</h1></div></div><div class="tools"><span id="clock"></span><button id="refresh">刷新</button><button id="passwd">修改密码</button><button id="manage" hidden>账号管理</button><button id="logout">退出</button></div></header>
-<main><div class="intro"><div><p class="eyebrow">保护有据 · 风险可见</p><h2>核心数据，今天保护得怎么样？</h2><p id="sample" class="muted">正在读取备份证据…</p></div><span class="badge" id="live">等待数据</span></div><div id="notice" role="status"></div><div id="kpis" class="kpis"></div><div class="middle"><section><div class="sectionhead"><h3>需要关注</h3><span class="muted">按实际证据展示</span></div><div id="issues"></div></section><section><div class="sectionhead"><h3>备份存储</h3><span class="muted">容量与连接</span></div><div id="storage"></div></section></div>
-<section><div class="sectionhead"><div><h3>资产保护全景</h3><p class="muted">副本完成、完整性校验和恢复演练分别计量</p></div><div class="filters"><input id="search" placeholder="搜索资产、IP、类型"><select id="filter"><option value="all">全部资产</option><option value="attention">仅看异常</option><option value="protected">近期副本齐全</option><option value="pending_verification">已到位，MD5待复核</option></select></div></div><div class="tablewrap"><table><thead><tr><th>资产 / 来源</th><th>保护状态</th><th>备份副本</th><th>恢复验证</th><th>源端 / 耗时</th><th></th></tr></thead><tbody id="assets"></tbody></table></div></section><footer>完成记录 ≠ 已完成恢复验收。数据过期或证据不足时，不显示为成功。每30秒自动刷新展示；源端采集按现有调度执行。</footer></main></div>
-<dialog id="passworddialog"><form id="passwordform"><h2>修改密码</h2><p>修改后所有已登录会话失效，请重新登录。</p><label>当前密码<input id="oldpass" type="password" autocomplete="current-password" required></label><label>新密码<input id="newpass" type="password" autocomplete="new-password" minlength="12" required></label><label>确认新密码<input id="confirmpass" type="password" autocomplete="new-password" required></label><p id="passerror" role="alert"></p><div class="dialogactions"><button type="button" id="cancelpass">取消</button><button class="primary">保存密码</button></div></form></dialog>
-<dialog id="detaildialog"><div class="sectionhead"><h2 id="detailtitle">资产详情</h2><button id="closedetail">关闭</button></div><div id="detail"></div></dialog>
-<dialog id="usersdialog"><div class="sectionhead"><h2>账号管理</h2><button id="closeusers">关闭</button></div><p class="muted">最多100个账号。新建和重置后需首次修改密码；不提供公开注册。</p><form id="createform" class="userform"><input id="newuser" placeholder="账号：英文/数字/._-" required><input id="userpass" type="password" placeholder="初始密码，至少12位" required><select id="role"><option value="viewer">查看人员</option><option value="admin">管理员</option></select><button class="primary">创建账号</button></form><p id="usererror" role="alert"></p><div id="userlist"></div></dialog>
-<dialog id="resetdialog"><form id="resetform"><h2>重置账号密码</h2><p id="resetname"></p><label>临时密码<input id="resetpass" type="password" minlength="12" autocomplete="new-password" required></label><p id="reseterror" role="alert"></p><div class="dialogactions"><button type="button" id="cancelreset">取消</button><button class="primary">确认重置</button></div></form></dialog>
-<dialog id="acceptdialog"><form id="acceptform"><h2>登记人工业务验收</h2><p>仅记录人工测试，不覆盖MD5或自动恢复结果。再次提交保留历史。</p><input id="acceptasset" type="hidden"><label>备份批次<select id="acceptrun" required></select></label><label>结果<select id="acceptstatus"><option value="failed">未通过</option><option value="passed">通过</option></select></label><label>测试时间（含时区）<input id="accepttime" required maxlength="64"></label><label>范围/隔离测试地址<input id="acceptscope" required maxlength="1000"></label><label>测试步骤<textarea id="acceptsteps" required maxlength="3000"></textarea></label><label>实际结果<textarea id="acceptactual" required maxlength="3000"></textarea></label><label>证据位置<textarea id="acceptevidence" required maxlength="2000"></textarea></label><label>未测范围<textarea id="acceptuntested" required maxlength="1500"></textarea></label><p id="accepterror" role="alert"></p><div class="dialogactions"><button type="button" id="cancelaccept">取消</button><button class="primary">提交并保留审计记录</button></div></form></dialog>
-<script src="/static/acceptance-view.js"></script><script src="/static/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>研发资料备份结果查询报告 · 管理驾驶舱</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Phosphor Icons (MIT License, Copyright 2023 Phosphor Icons) -->
+  <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="ic-arrow-up-right" viewBox="0 0 256 256"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></symbol>
+      <symbol id="ic-arrows-clockwise" viewBox="0 0 256 256"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></symbol>
+      <symbol id="ic-calendar-check" viewBox="0 0 256 256"><path d="M216,48V88H40V48a8,8,0,0,1,8-8H208A8,8,0,0,1,216,48Z" opacity="0.2"/><path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM72,48v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80H48V48ZM208,208H48V96H208V208Zm-38.34-85.66a8,8,0,0,1,0,11.32l-48,48a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L116,164.69l42.34-42.35A8,8,0,0,1,169.66,122.34Z"/></symbol>
+      <symbol id="ic-caret-down" viewBox="0 0 256 256"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></symbol>
+      <symbol id="ic-caret-right" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"/></symbol>
+      <symbol id="ic-chart-bar" viewBox="0 0 256 256"><path d="M208,40V208H152V40Z" opacity="0.2"/><path d="M224,200h-8V40a8,8,0,0,0-8-8H152a8,8,0,0,0-8,8V80H96a8,8,0,0,0-8,8v40H48a8,8,0,0,0-8,8v64H32a8,8,0,0,0,0,16H224a8,8,0,0,0,0-16ZM160,48h40V200H160ZM104,96h40V200H104ZM56,144H88v56H56Z"/></symbol>
+      <symbol id="ic-chart-line-up" viewBox="0 0 256 256"><path d="M236,208a12,12,0,0,1-12,12H32a12,12,0,0,1-12-12V48a12,12,0,0,1,24,0v99l43.51-43.52a12,12,0,0,1,17,0L128,127l43-43H160a12,12,0,0,1,0-24h40a12,12,0,0,1,12,12v40a12,12,0,0,1-24,0V101l-51.51,51.52a12,12,0,0,1-17,0L96,129,44,181v15H224A12,12,0,0,1,236,208Z"/></symbol>
+      <symbol id="ic-check-circle" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></symbol>
+      <symbol id="ic-clipboard-text" viewBox="0 0 256 256"><path d="M208,48V216a8,8,0,0,1-8,8H56a8,8,0,0,1-8-8V48a8,8,0,0,1,8-8H96a39.83,39.83,0,0,0-8,24v8h80V64a39.83,39.83,0,0,0-8-24h40A8,8,0,0,1,208,48Z" opacity="0.2"/><path d="M168,152a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,152Zm-8-40H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16Zm56-64V216a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V48A16,16,0,0,1,56,32H92.26a47.92,47.92,0,0,1,71.48,0H200A16,16,0,0,1,216,48ZM96,64h64a32,32,0,0,0-64,0ZM200,48H173.25A47.93,47.93,0,0,1,176,64v8a8,8,0,0,1-8,8H88a8,8,0,0,1-8-8V64a47.93,47.93,0,0,1,2.75-16H56V216H200Z"/></symbol>
+      <symbol id="ic-clock" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></symbol>
+      <symbol id="ic-clock-countdown" viewBox="0 0 256 256"><path d="M232,136.66A104.12,104.12,0,1,1,119.34,24,8,8,0,0,1,120.66,40,88.12,88.12,0,1,0,216,135.34,8,8,0,0,1,232,136.66ZM120,72v56a8,8,0,0,0,8,8h56a8,8,0,0,0,0-16H136V72a8,8,0,0,0-16,0Zm40-24a12,12,0,1,0-12-12A12,12,0,0,0,160,48Zm36,24a12,12,0,1,0-12-12A12,12,0,0,0,196,72Zm24,36a12,12,0,1,0-12-12A12,12,0,0,0,220,108Z"/></symbol>
+      <symbol id="ic-code" viewBox="0 0 256 256"><path d="M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z"/></symbol>
+      <symbol id="ic-cube" viewBox="0 0 256 256"><path d="M128,129.09V232a8,8,0,0,1-3.84-1l-88-48.16a8,8,0,0,1-4.16-7V80.2a8,8,0,0,1,.7-3.27Z" opacity="0.2"/><path d="M223.68,66.15,135.68,18h0a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32h0l80.34,44L128,120,47.66,76ZM40,90l80,43.78v85.79L40,175.82Zm96,129.57V133.82L216,90v85.78Z"/></symbol>
+      <symbol id="ic-cursor-click" viewBox="0 0 256 256"><path d="M88,24V16a8,8,0,0,1,16,0v8a8,8,0,0,1-16,0ZM16,104h8a8,8,0,0,0,0-16H16a8,8,0,0,0,0,16ZM124.42,39.16a8,8,0,0,0,10.74-3.58l8-16a8,8,0,0,0-14.31-7.16l-8,16A8,8,0,0,0,124.42,39.16Zm-96,81.69-16,8a8,8,0,0,0,7.16,14.31l16-8a8,8,0,1,0-7.16-14.31ZM219.31,184a16,16,0,0,1,0,22.63l-12.68,12.68a16,16,0,0,1-22.63,0L132.7,168,115,214.09c0,.1-.08.21-.13.32a15.83,15.83,0,0,1-14.6,9.59l-.79,0a15.83,15.83,0,0,1-14.41-11L32.8,52.92A16,16,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.32.13L168,132.69ZM208,195.31,156.69,144h0a16,16,0,0,1,4.93-26l.32-.14,45.95-17.64L48,48l52.2,159.86,17.65-46c0-.11.08-.22.13-.33a16,16,0,0,1,11.69-9.34,16.72,16.72,0,0,1,3-.28,16,16,0,0,1,11.3,4.69L195.31,208Z"/></symbol>
+      <symbol id="ic-database" viewBox="0 0 256 256"><path d="M216,80c0,26.51-39.4,48-88,48S40,106.51,40,80s39.4-48,88-48S216,53.49,216,80Z" opacity="0.2"/><path d="M128,24C74.17,24,32,48.6,32,80v96c0,31.4,42.17,56,96,56s96-24.6,96-56V80C224,48.6,181.83,24,128,24Zm80,104c0,9.62-7.88,19.43-21.61,26.92C170.93,163.35,150.19,168,128,168s-42.93-4.65-58.39-13.08C55.88,147.43,48,137.62,48,128V111.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64ZM69.61,53.08C85.07,44.65,105.81,40,128,40s42.93,4.65,58.39,13.08C200.12,60.57,208,70.38,208,80s-7.88,19.43-21.61,26.92C170.93,115.35,150.19,120,128,120s-42.93-4.65-58.39-13.08C55.88,99.43,48,89.62,48,80S55.88,60.57,69.61,53.08ZM186.39,202.92C170.93,211.35,150.19,216,128,216s-42.93-4.65-58.39-13.08C55.88,195.43,48,185.62,48,176V159.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64V176C208,185.62,200.12,195.43,186.39,202.92Z"/></symbol>
+      <symbol id="ic-export" viewBox="0 0 256 256"><path d="M216,112v96a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V112A16,16,0,0,1,56,96H80a8,8,0,0,1,0,16H56v96H200V112H176a8,8,0,0,1,0-16h24A16,16,0,0,1,216,112ZM93.66,69.66,120,43.31V136a8,8,0,0,0,16,0V43.31l26.34,26.35a8,8,0,0,0,11.32-11.32l-40-40a8,8,0,0,0-11.32,0l-40,40A8,8,0,0,0,93.66,69.66Z"/></symbol>
+      <symbol id="ic-funnel-simple" viewBox="0 0 256 256"><path d="M200,136a8,8,0,0,1-8,8H64a8,8,0,0,1,0-16H192A8,8,0,0,1,200,136Zm32-56H24a8,8,0,0,0,0,16H232a8,8,0,0,0,0-16Zm-80,96H104a8,8,0,0,0,0,16h48a8,8,0,0,0,0-16Z"/></symbol>
+      <symbol id="ic-git-branch" viewBox="0 0 256 256"><path d="M236,64a36,36,0,1,0-48,33.94V112a4,4,0,0,1-4,4H96a27.8,27.8,0,0,0-4,.29V97.94a36,36,0,1,0-24,0v60.12a36,36,0,1,0,24,0V144a4,4,0,0,1,4-4h88a28,28,0,0,0,28-28V97.94A36.07,36.07,0,0,0,236,64ZM80,52A12,12,0,1,1,68,64,12,12,0,0,1,80,52Zm0,152a12,12,0,1,1,12-12A12,12,0,0,1,80,204ZM200,76a12,12,0,1,1,12-12A12,12,0,0,1,200,76Z"/></symbol>
+      <symbol id="ic-hard-drives" viewBox="0 0 256 256"><path d="M216,152v48a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V152a8,8,0,0,1,8-8H208A8,8,0,0,1,216,152ZM208,48H48a8,8,0,0,0-8,8v48a8,8,0,0,0,8,8H208a8,8,0,0,0,8-8V56A8,8,0,0,0,208,48Z" opacity="0.2"/><path d="M208,136H48a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V152A16,16,0,0,0,208,136Zm0,64H48V152H208v48Zm0-160H48A16,16,0,0,0,32,56v48a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V56A16,16,0,0,0,208,40Zm0,64H48V56H208v48ZM192,80a12,12,0,1,1-12-12A12,12,0,0,1,192,80Zm0,96a12,12,0,1,1-12-12A12,12,0,0,1,192,176Z"/></symbol>
+      <symbol id="ic-info" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"/></symbol>
+      <symbol id="ic-magnifying-glass" viewBox="0 0 256 256"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></symbol>
+      <symbol id="ic-minus-circle" viewBox="0 0 256 256"><path d="M176,128a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,128Zm56,0A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></symbol>
+      <symbol id="ic-package" viewBox="0 0 256 256"><path d="M128,129.09V232a8,8,0,0,1-3.84-1l-88-48.18a8,8,0,0,1-4.16-7V80.18a8,8,0,0,1,.7-3.25Z" opacity="0.2"/><path d="M223.68,66.15,135.68,18a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32l80.34,44-29.77,16.3-80.35-44ZM128,120,47.66,76l33.9-18.56,80.34,44ZM40,90l80,43.78v85.79L40,175.82Zm176,85.78h0l-80,43.79V133.82l32-17.51V152a8,8,0,0,0,16,0V107.55L216,90v85.77Z"/></symbol>
+      <symbol id="ic-shield-check" viewBox="0 0 256 256"><path d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm-34.32,69.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></symbol>
+      <symbol id="ic-squares-four" viewBox="0 0 256 256"><path d="M112,56v48a8,8,0,0,1-8,8H56a8,8,0,0,1-8-8V56a8,8,0,0,1,8-8h48A8,8,0,0,1,112,56Zm88-8H152a8,8,0,0,0-8,8v48a8,8,0,0,0,8,8h48a8,8,0,0,0,8-8V56A8,8,0,0,0,200,48Zm-96,96H56a8,8,0,0,0-8,8v48a8,8,0,0,0,8,8h48a8,8,0,0,0,8-8V152A8,8,0,0,0,104,144Zm96,0H152a8,8,0,0,0-8,8v48a8,8,0,0,0,8,8h48a8,8,0,0,0,8-8V152A8,8,0,0,0,200,144Z" opacity="0.2"/><path d="M200,136H152a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V152A16,16,0,0,0,200,136Zm0,64H152V152h48v48ZM104,40H56A16,16,0,0,0,40,56v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V56A16,16,0,0,0,104,40Zm0,64H56V56h48v48Zm96-64H152a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V56A16,16,0,0,0,200,40Zm0,64H152V56h48v48Zm-96,32H56a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V152A16,16,0,0,0,104,136Zm0,64H56V152h48v48Z"/></symbol>
+      <symbol id="ic-stack" viewBox="0 0 256 256"><path d="M220,169.09l-92,53.65L36,169.09A8,8,0,0,0,28,182.91l96,56a8,8,0,0,0,8.06,0l96-56A8,8,0,1,0,220,169.09Z"/><path d="M220,121.09l-92,53.65L36,121.09A8,8,0,0,0,28,134.91l96,56a8,8,0,0,0,8.06,0l96-56A8,8,0,1,0,220,121.09Z"/><path d="M28,86.91l96,56a8,8,0,0,0,8.06,0l96-56a8,8,0,0,0,0-13.82l-96-56a8,8,0,0,0-8.06,0l-96,56a8,8,0,0,0,0,13.82Z"/></symbol>
+      <symbol id="ic-terminal-window" viewBox="0 0 256 256"><path d="M224,56V200a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V56a8,8,0,0,1,8-8H216A8,8,0,0,1,224,56Z" opacity="0.2"/><path d="M128,128a8,8,0,0,1-3,6.25l-40,32a8,8,0,1,1-10-12.5L107.19,128,75,102.25a8,8,0,1,1,10-12.5l40,32A8,8,0,0,1,128,128Zm48,24H136a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm56-96V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Z"/></symbol>
+      <symbol id="ic-user-check" viewBox="0 0 256 256"><path d="M144,157.68a68,68,0,1,0-71.9,0c-20.65,6.76-39.23,19.39-54.17,37.17a8,8,0,0,0,12.25,10.3C50.25,181.19,77.91,168,108,168s57.75,13.19,77.87,37.15a8,8,0,0,0,12.25-10.3C183.18,177.07,164.6,164.44,144,157.68ZM56,100a52,52,0,1,1,52,52A52.06,52.06,0,0,1,56,100Zm197.66,33.66-32,32a8,8,0,0,1-11.32,0l-16-16a8,8,0,0,1,11.32-11.32L216,148.69l26.34-26.35a8,8,0,0,1,11.32,11.32Z"/></symbol>
+      <symbol id="ic-warning" viewBox="0 0 256 256"><path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM120,104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm8,88a12,12,0,1,1,12-12A12,12,0,0,1,128,192Z"/></symbol>
+      <symbol id="ic-warning-circle" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-8,56a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Zm8,104a12,12,0,1,1,12-12A12,12,0,0,1,128,184Z"/></symbol>
+      <symbol id="ic-x" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></symbol>
+      <symbol id="ic-x-circle" viewBox="0 0 256 256"><path d="M165.66,101.66,139.31,128l26.35,26.34a8,8,0,0,1-11.32,11.32L128,139.31l-26.34,26.35a8,8,0,0,1-11.32-11.32L116.69,128,90.34,101.66a8,8,0,0,1,11.32-11.32L128,116.69l26.34-26.35a8,8,0,0,1,11.32,11.32ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></symbol>
+      <symbol id="ic-brand-db" viewBox="0 0 64 64">
+        <defs><linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#489dff"/><stop offset="100%" stop-color="#0b63da"/></linearGradient></defs>
+        <ellipse cx="30" cy="15" rx="19" ry="7.5" fill="url(#brandGrad)"/>
+        <path d="M11,15v13c0,4.1,8.5,7.5,19,7.5s19-3.4,19-7.5V15c0,4.1-8.5,7.5-19,7.5S11,19.1,11,15Z" fill="#2c84f6"/>
+        <path d="M11,29v13c0,4.1,8.5,7.5,19,7.5s19-3.4,19-7.5V29c0,4.1-8.5,7.5-19,7.5S11,33.1,11,29Z" fill="#136ae2"/>
+        <circle cx="47" cy="45" r="11" fill="#e8f3ff" stroke="#1673ed" stroke-width="2.5"/>
+        <path d="M42.5,45.2l3,3.1,6.2-6.5" fill="none" stroke="#117342" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div id="login" class="login">
+    <section class="panel login-card">
+      <div class="login-brand">
+        <svg class="brand-emblem" viewBox="0 0 64 64" aria-hidden="true"><use href="#ic-brand-db"></use></svg>
+        <div>
+          <p class="eyebrow">CORE ASSET PROTECTION</p>
+          <strong>源启科技 · 备份证据台</strong>
+        </div>
+      </div>
+      <h1>研发资料备份结果查询报告</h1>
+      <p class="muted">副本到位 · 完整性校验 · 原生恢复 · 人工业务验收独立计量</p>
+      <form id="loginform">
+        <label>账号<input id="username" autocomplete="username" required></label>
+        <label>密码<input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="button primary login-submit" type="submit">登录控制台 →</button>
+      </form>
+      <p id="loginerror" class="form-error" role="alert"></p>
+      <small class="muted">内部只读/管理平台 · 仅依据实时采样证据展示，不触发生产备份</small>
+    </section>
+  </div>
+
+  <div id="board" class="report-shell" hidden>
+    <div id="report">
+      <header class="masthead">
+        <div class="mast-inner">
+          <div class="wordmark" aria-label="源启科技，文字标识">
+            <strong>源启科技</strong>
+            <span>YUANQI TECHNOLOGY</span>
+          </div>
+          <svg class="title-art" viewBox="0 0 64 64" aria-hidden="true"><use href="#ic-brand-db"></use></svg>
+          <div class="mast-title">
+            <h1>研发资料备份结果查询报告</h1>
+            <p>核心研发资产的副本、异常与恢复验证 · 实时证据投影</p>
+          </div>
+          <div class="header-tools">
+            <div class="header-meta">
+              <div class="meta-line">
+                <span class="badge neutral" id="live">等待数据</span>
+                <span class="user-tag" id="user-tag">未登录</span>
+                <span class="clock-tag" id="clock"></span>
+              </div>
+              <div class="sample-time" id="sample-time">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-clock"></use></svg>
+                <span id="sample">正在读取备份证据…</span>
+              </div>
+            </div>
+            <div class="tool-buttons">
+              <button class="button outline" id="glossary-btn" type="button" title="查看数据来源与统计口径">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-info"></use></svg>
+                <span>口径说明</span>
+              </button>
+              <button class="button outline" id="refresh" type="button" title="重新请求 /api/board">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-arrows-clockwise"></use></svg>
+                <span>刷新</span>
+              </button>
+              <button class="button primary" id="export" type="button" title="按当前筛选结果导出带来源与口径说明的 UTF-8 CSV">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-export"></use></svg>
+                <span>导出报告</span>
+              </button>
+              <button class="button ghost" id="passwd" type="button">改密</button>
+              <button class="button ghost" id="manage" type="button" hidden>账号</button>
+              <button class="button ghost" id="logout" type="button">退出</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div id="notice" class="notice-banner" role="status"></div>
+
+        <section aria-label="核心统计指标" id="kpis" class="metrics"></section>
+
+        <section class="daily panel" aria-labelledby="daily-heading">
+          <h2 id="daily-heading">
+            <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-calendar-check"></use></svg>
+            当日执行概要
+          </h2>
+          <dl id="daily-values">
+            <div><dt>应执行</dt><dd>—</dd></div>
+            <div><dt>已完成</dt><dd>—</dd></div>
+            <div><dt>失败</dt><dd>—</dd></div>
+            <div><dt>待执行</dt><dd>—</dd></div>
+            <div><dt>成功率</dt><dd>—</dd></div>
+          </dl>
+          <span class="daily-note" title="当前仅接入 /api/board 快照投影；每日任务明细与成功率需待后续历史快照库接口（DATA-01）接入后展示，不以静态数据冒充。">
+            <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-clock-countdown"></use></svg>
+            任务明细接口暂未接入（数据来源：后续 DATA-01）
+          </span>
+        </section>
+
+        <div class="workspace">
+          <section class="panel matrix" aria-labelledby="matrix-heading">
+            <header class="panel-head matrix-head">
+              <div class="panel-title">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-stack"></use></svg>
+                <h2 id="matrix-heading">核心资产备份矩阵</h2>
+                <span id="matrix-count" class="count">0 项</span>
+              </div>
+              <div class="matrix-controls">
+                <label class="search">
+                  <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-magnifying-glass"></use></svg>
+                  <input id="search" type="search" placeholder="搜索名称、IP 或类型" aria-label="搜索资产名称、IP 或类型" autocomplete="off">
+                </label>
+                <label class="select-wrap">
+                  <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-funnel-simple"></use></svg>
+                  <select id="filter" aria-label="筛选资产保护状态">
+                    <option value="all">全部状态</option>
+                    <option value="delivered">近期副本到位（含待MD5）</option>
+                    <option value="protected">近期副本齐全（已核验）</option>
+                    <option value="pending_verification">已到位 · 待 MD5 复核</option>
+                    <option value="attention">仅看异常待关注</option>
+                    <option value="restored">原生恢复通过</option>
+                  </select>
+                  <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-caret-down"></use></svg>
+                </label>
+              </div>
+            </header>
+            <div class="table-scroll" id="matrix-scroll" tabindex="0" role="region" aria-label="资产备份明细，可滚动查看全部资产">
+              <table id="asset-table">
+                <thead id="asset-head"></thead>
+                <tbody id="assets"></tbody>
+              </table>
+              <div class="empty" id="matrix-empty" hidden></div>
+            </div>
+            <div class="matrix-foot">
+              <span id="result-count" aria-live="polite">显示 0 项</span>
+              <button id="reset" class="text-btn" type="button" hidden>
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-x-circle"></use></svg>
+                清除筛选
+              </button>
+              <span class="foot-source-tag">来源：/api/board（snapshot.json + PostgreSQL 人工验收）</span>
+              <span class="foot-guide">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-cursor-click"></use></svg>
+                点击行或副本查看详情
+              </span>
+            </div>
+          </section>
+
+          <section class="panel storage" aria-labelledby="storage-heading">
+            <header class="panel-head">
+              <div class="panel-title">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-hard-drives"></use></svg>
+                <h2 id="storage-heading">备份存储位置</h2>
+              </div>
+              <span class="head-note" id="storage-count">0 个位置</span>
+            </header>
+            <div id="storage" class="storage-content"></div>
+            <div class="panel-provenance">来源：snapshot.json <code>targets</code> 挂载与容量采样；未挂载不代表备份成功</div>
+          </section>
+
+          <section class="panel risk-panel" aria-labelledby="risk-heading">
+            <header class="panel-head">
+              <div class="panel-title">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-warning"></use></svg>
+                <h2 id="risk-heading">重点关注</h2>
+                <span class="count red-count" id="risk-count">0</span>
+              </div>
+              <button id="risk-filter" class="text-btn" type="button">
+                查看全部
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-caret-right"></use></svg>
+              </button>
+            </header>
+            <div id="issues" class="risk-list"></div>
+            <div class="panel-provenance">口径：缺有效副本、记录超期、源端连接非 ok、目标未接入或批次不一致</div>
+          </section>
+
+          <section class="panel history" aria-labelledby="history-heading">
+            <header class="panel-head">
+              <div class="panel-title">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-chart-line-up"></use></svg>
+                <h2 id="history-heading">近 7 天备份结果</h2>
+                <span class="badge neutral">历史接口暂未接入</span>
+              </div>
+              <span class="head-note" id="history-range">以当前采样日为锚点</span>
+            </header>
+            <div class="history-body">
+              <div class="history-message">
+                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-chart-bar"></use></svg>
+                <div>
+                  <strong>历史趋势库暂未接入（后续 DATA-01）</strong>
+                  <p>当前仅展示本次实时快照日状态，严禁以单次快照或静态数据冒充 7 日历史趋势。</p>
+                </div>
+              </div>
+              <div id="day-list" class="day-list" aria-label="近 7 天快照接入状态"></div>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel provenance-section" id="provenance-section" aria-labelledby="provenance-heading">
+          <header class="panel-head">
+            <div class="panel-title">
+              <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-clipboard-text"></use></svg>
+              <h2 id="provenance-heading">数据来源与统计口径说明</h2>
+            </div>
+            <span class="head-note">每项展示数据可溯源、口径透明、未接入项显式声明</span>
+          </header>
+          <div class="provenance-grid">
+            <article class="prov-card">
+              <h3>1. 总体数据来源与刷新</h3>
+              <p>页面请求 <code>GET /api/board</code>，由服务端 <code>model.project()</code> 实时投影 <code>/evidence/snapshot.json</code>（最大 8 MB），并按资产关联 PostgreSQL <code>acceptance_events</code> 人工业务验收记录（近 500 条）。前端每 30 秒自动刷新页面，<strong>仅做只读展示，不触发源端备份或采集</strong>。</p>
+            </article>
+            <article class="prov-card">
+              <h3>2. 时效与过期判定（stale）</h3>
+              <p>以 <code>snapshot.sampled</code>（ISO 8601 含时区）与服务器当前 UTC 时间比较：超过 <strong>30 分钟（1800 秒）</strong> 或超前超过 <strong>5 分钟（300 秒）</strong> 即判定过期；页顶显示醒目告警，且服务端拒绝登记人工验收（HTTP 409）。</p>
+            </article>
+            <article class="prov-card">
+              <h3>3. 副本到位、待 MD5 与异常口径</h3>
+              <p>逐资产核对每个期望存储目标，副本日期须落在有效窗口内（默认 <code>0–2 天</code>，Harbor <code>0–8 天</code>，或资产 <code>max_age_days</code>，拒绝未来日期）：<code>receipt_found</code> / <code>files_md5_rechecked</code> 计为<strong>近期副本齐全</strong>；<code>files_size_rechecked</code> 计为<strong>已到位·待 MD5</strong>（计入“近期副本到位”，同时单列待 MD5 数量）；其余缺记录、超期、连接异常、目标未接入或批次不一致计入<strong>异常待关注</strong>。</p>
+            </article>
+            <article class="prov-card">
+              <h3>4. 五项验证严格分离</h3>
+              <p>① 副本到位、② 文件大小核对、③ MD5 内容复核、④ 原生技术恢复（<code>restore.status</code>，仅 <code>passed</code> 计入“恢复验证通过”）、⑤ 人工业务验收（PostgreSQL 独立追加记录，仅匹配当前已到位 <code>backup_run</code>）。五项独立计量、互不替代、互不覆盖。</p>
+            </article>
+            <article class="prov-card prov-pending">
+              <h3>5. 当前未接入项（显式声明）</h3>
+              <p>以下能力已按阶段规划归属后续任务（<code>DATA-01</code>），当前接口未提供，界面明确标示“暂未接入”而不构造假数据：当日执行任务数与成功率、近 7 天及更长历史趋势数据库、脱敏执行日志查询接口、目标共享目录实时截图。</p>
+            </article>
+          </div>
+        </section>
+
+        <footer class="report-foot">
+          <span>
+            <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-info"></use></svg>
+            <span id="foot-source">完成记录 ≠ 已完成恢复验收。数据过期或证据不足时，不显示为成功。每 30 秒自动刷新展示；源端采集按既有生产调度执行。</span>
+          </span>
+          <button class="text-btn" id="foot-glossary" type="button">查看完整口径弹窗</button>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="detaildialog" class="drawer" aria-labelledby="detailtitle">
+    <div class="drawer-frame">
+      <header class="drawer-top">
+        <div class="panel-title">
+          <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-cube"></use></svg>
+          <h2 id="detailtitle">资产备份详情</h2>
+        </div>
+        <button class="icon-btn" id="closedetail" type="button" aria-label="关闭资产详情">
+          <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-x"></use></svg>
+        </button>
+      </header>
+      <div id="asset-identity" class="asset-identity"></div>
+      <div class="tab-strip" id="detail-tabs" role="tablist" aria-label="资产详情分类"></div>
+      <div id="detail" class="drawer-scroll" tabindex="0" role="tabpanel"></div>
+    </div>
+  </dialog>
+
+  <dialog id="glossarydialog" class="modal-dialog" aria-labelledby="glossary-title">
+    <div class="dialog-head">
+      <h2 id="glossary-title">数据来源与统计口径明细</h2>
+      <button class="icon-btn" id="closeglossary" type="button" aria-label="关闭口径说明">
+        <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-x"></use></svg>
+      </button>
+    </div>
+    <p class="muted">本驾驶舱所有指标均直接来自后端实时投影与审计库，下表列明每一区块的数据源字段与判定规则：</p>
+    <div class="table-wrap-mini">
+      <table class="mini-table">
+        <thead><tr><th>展示区块 / 指标</th><th>数据来源</th><th>统计与判定口径</th></tr></thead>
+        <tbody>
+          <tr><td><strong>纳管核心资产</strong></td><td><code>/api/board → summary.total</code></td><td><code>snapshot.json</code> 中 <code>assets</code> 清单总条目数。</td></tr>
+          <tr><td><strong>近期副本到位 &amp; 到位占比</strong></td><td><code>summary.delivered / summary.total</code></td><td>资产所有期望目标均在有效窗口内有完成记录或大小核对记录（含待 MD5 复核资产），且无异常项；占比分母固定为纳管总数。</td></tr>
+          <tr><td><strong>已到位 · 待 MD5</strong></td><td><code>summary.pending_verification</code></td><td>至少 1 个目标为 <code>files_size_rechecked</code>（大小已核对、MD5 待复核）且无其他异常。</td></tr>
+          <tr><td><strong>异常待关注</strong></td><td><code>summary.attention</code></td><td>命中任一异常：缺有效完成记录、副本日期超期或晚于当前日、未配置目标、执行批次与副本批次不一致、源端连接检查非 <code>ok</code>。</td></tr>
+          <tr><td><strong>恢复验证通过</strong></td><td><code>summary.restore_passed</code></td><td>仅统计 <code>restore.status === "passed"</code> 的原生技术恢复结果；不与副本到位或人工验收混算。</td></tr>
+          <tr><td><strong>人工业务验收</strong></td><td>PostgreSQL <code>acceptance_events</code></td><td>独立追加审计表，由管理员登记；列表标签仅匹配当前已到位 <code>backup_run</code>，旧批次验收单独标示为历史记录。</td></tr>
+          <tr><td><strong>备份存储位置</strong></td><td><code>snapshot.json → targets[]</code></td><td>展示各目标挂载状态、总容量与剩余容量（按 1024 进制折算 GB/TB），使用率超过 85% 标示预警色。</td></tr>
+          <tr><td><strong>当日概要 / 7天趋势 / 日志</strong></td><td>暂未接入（规划 <code>DATA-01</code>）</td><td>未接入对应历史与日志接口前统一展示“暂未接入/—”，禁止使用静态假数据。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="dialogactions"><button class="button primary" id="okglossary" type="button">知道了</button></div>
+  </dialog>
+
+  <dialog id="passworddialog" class="modal-dialog modal-sm">
+    <form id="passwordform">
+      <h2>修改密码</h2>
+      <p class="muted">修改后所有已登录会话失效，请重新登录。</p>
+      <label>当前密码<input id="oldpass" type="password" autocomplete="current-password" required></label>
+      <label>新密码<input id="newpass" type="password" autocomplete="new-password" minlength="12" required></label>
+      <label>确认新密码<input id="confirmpass" type="password" autocomplete="new-password" required></label>
+      <p id="passerror" class="form-error" role="alert"></p>
+      <div class="dialogactions">
+        <button class="button outline" type="button" id="cancelpass">取消</button>
+        <button class="button primary" type="submit">保存密码</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="usersdialog" class="modal-dialog">
+    <div class="dialog-head">
+      <h2>账号管理</h2>
+      <button class="icon-btn" id="closeusers" type="button" aria-label="关闭账号管理">
+        <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-x"></use></svg>
+      </button>
+    </div>
+    <p class="muted">最多 100 个账号。新建和重置后需首次修改密码；不提供公开注册。</p>
+    <form id="createform" class="userform">
+      <input id="newuser" placeholder="账号：英文/数字/._-" required>
+      <input id="userpass" type="password" placeholder="初始密码，至少12位" required>
+      <select id="role"><option value="viewer">查看人员</option><option value="admin">管理员</option></select>
+      <button class="button primary" type="submit">创建账号</button>
+    </form>
+    <p id="usererror" class="form-error" role="alert"></p>
+    <div id="userlist"></div>
+  </dialog>
+
+  <dialog id="resetdialog" class="modal-dialog modal-sm">
+    <form id="resetform">
+      <h2>重置账号密码</h2>
+      <p id="resetname" class="muted"></p>
+      <label>临时密码<input id="resetpass" type="password" minlength="12" autocomplete="new-password" required></label>
+      <p id="reseterror" class="form-error" role="alert"></p>
+      <div class="dialogactions">
+        <button class="button outline" type="button" id="cancelreset">取消</button>
+        <button class="button primary" type="submit">确认重置</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="acceptdialog" class="modal-dialog modal-md">
+    <form id="acceptform">
+      <h2>登记人工业务验收</h2>
+      <p class="muted">仅记录人工测试，不覆盖 MD5 或自动恢复结果。再次提交保留完整追加历史。</p>
+      <input id="acceptasset" type="hidden">
+      <label>备份批次<select id="acceptrun" required></select></label>
+      <label>结果<select id="acceptstatus"><option value="failed">未通过</option><option value="passed">通过</option></select></label>
+      <label>测试时间（含时区）<input id="accepttime" required maxlength="64"></label>
+      <label>范围/隔离测试地址<input id="acceptscope" required maxlength="1000"></label>
+      <label>测试步骤<textarea id="acceptsteps" required maxlength="3000"></textarea></label>
+      <label>实际结果<textarea id="acceptactual" required maxlength="3000"></textarea></label>
+      <label>证据位置<textarea id="acceptevidence" required maxlength="2000"></textarea></label>
+      <label>未测范围<textarea id="acceptuntested" required maxlength="1500"></textarea></label>
+      <p id="accepterror" class="form-error" role="alert"></p>
+      <div class="dialogactions">
+        <button class="button outline" type="button" id="cancelaccept">取消</button>
+        <button class="button primary" type="submit">提交并保留审计记录</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="/static/acceptance-view.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
