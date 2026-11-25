@@ -1,4 +1,4 @@
-param([switch]$SetupCredentials, [switch]$CheckOnly)
+﻿param([switch]$SetupCredentials, [switch]$CheckOnly)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 $c=& (Join-Path $root 'config.ps1')
@@ -24,7 +24,7 @@ public class KingdeeNas {
 $logs=Join-Path $root 'logs'; New-Item -ItemType Directory -Force -Path $logs | Out-Null
 try{$lock=[IO.File]::Open((Join-Path $root 'backup.lock'),'OpenOrCreate','ReadWrite','None')}catch{Write-Host ('Cannot acquire backup lock (another process or permissions): '+$_.Exception.Message);exit 2}
 $start=Get-Date;$log=Join-Path $logs ((Get-Date -Format yyyyMMddTHHmmss)+'.log')
-function Log($s){$line=(Get-Date -Format s)+' '+$s;Write-Host $line;Add-Content -LiteralPath $log -Value $line -Encoding UTF8}
+function Log($s){$line=(Get-Date -Format s)+' '+$s;Add-Content -LiteralPath $log -Value $line -Encoding UTF8;try{Write-Host $line}catch{}}
 function Snapshot {
  $list=@(Get-ChildItem -LiteralPath $c.Source -Force | Where-Object {!$_.PSIsContainer -and $_.Name -match '_([0-9]{8})\.ADF$'})
  $found=@()
@@ -82,7 +82,7 @@ try{
   $handles=@()
   try{
    foreach($x in $selected){$handles += [IO.File]::Open($x.File.FullName,'Open','Read','Read')}
-   foreach($x in $selected){Log ('COPY '+$x.File.Name);& $robocopy $c.Source $partial $x.File.Name /COPY:DAT /R:1 /W:2 /NP /NFL /NDL ('/LOG+:'+$log);if($LASTEXITCODE -ge 8){throw ('Robocopy failed '+$LASTEXITCODE)};$f=Get-Item -LiteralPath (Join-Path $partial $x.File.Name);if($f.Length -ne $x.File.Length){throw 'Uploaded size mismatch'}}
+   foreach($x in $selected){Log ('COPY '+$x.File.Name);$prevEap=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$null = & $robocopy $c.Source $partial $x.File.Name /COPY:DAT /R:1 /W:2 /NP /NFL /NDL ('/LOG+:'+$log) 2>&1}finally{$ErrorActionPreference=$prevEap};if($LASTEXITCODE -ge 8){throw ('Robocopy failed '+$LASTEXITCODE)};$f=Get-Item -LiteralPath (Join-Path $partial $x.File.Name);if($f.Length -ne $x.File.Length){throw 'Uploaded size mismatch'}}
    $fresh=@(Snapshot | Where-Object {$_.Day -eq $day});if($fresh.Count -ne $selected.Count){throw 'Source set changed during copy'}
    foreach($x in $selected){$f=Get-Item -LiteralPath $x.File.FullName;if($f.Length -ne $x.File.Length -or $f.LastWriteTimeUtc -ne $x.File.LastWriteTimeUtc){throw 'Source changed during copy'}}
    $receipt=@{owner='kingdee-nas-v1';asset=$c.Asset;date=$day;verification='size_only';finished=(Get-Date -Format o);files=$manifest}
