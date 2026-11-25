@@ -87,7 +87,7 @@ try{
    foreach($x in $selected){$f=Get-Item -LiteralPath $x.File.FullName;if($f.Length -ne $x.File.Length -or $f.LastWriteTimeUtc -ne $x.File.LastWriteTimeUtc){throw 'Source changed during copy'}}
    $receipt=@{owner='kingdee-nas-v1';asset=$c.Asset;date=$day;verification='size_only';finished=(Get-Date -Format o);files=$manifest}
    [IO.File]::WriteAllText((Join-Path $partial 'complete.json'),$json.Serialize($receipt),[Text.Encoding]::UTF8)
-   Rename-Item -LiteralPath $partial -NewName $day
+   [IO.Directory]::Move($partial,$final)
   }finally{foreach($h in $handles){$h.Dispose()}}
  }
  $valid=@();foreach($d in @(Get-ChildItem -LiteralPath $base -Force | Where-Object {$_.PSIsContainer -and $_.Name -match '^\d{4}-\d{2}-\d{2}$'})){$r=ValidReceipt $d;if($r){$valid+=@{Dir=$d;Receipt=$r}}}
