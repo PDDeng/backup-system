@@ -13,7 +13,7 @@ let toastTimer = null;
 
 const TARGET_META = {
   nas243: { name: 'NAS 243', short: 'NAS 243', hint: '研发备份存储' },
-  win254: { name: '备份服务器 254', short: '254 办公室', hint: '研发备份存储' },
+  win254: { name: '备份服务器 254', short: '254 办公室', storageName: '钱总办公室', hint: '研发备份存储' },
   nas240: { name: 'NAS 240', short: 'NAS 240', hint: '研发备份存储' },
   nas6_240: { name: '金蝶 NAS', short: '金蝶 NAS', hint: '金蝶备份存储' }
 };
@@ -364,8 +364,9 @@ function renderStorage() {
 
   for (const t of targets) {
     const row = node('div', undefined, 'target-row');
+    const storageTitle = (TARGET_META[t.id] && TARGET_META[t.id].storageName) || targetLabel(t.id, false);
     const nameRow = node('div', undefined, 'target-name');
-    nameRow.append(icon('ic-hard-drives'), node('b', targetLabel(t.id, false)));
+    nameRow.append(icon('ic-hard-drives'), node('b', storageTitle));
     const mounted = t.status === 'mounted';
     nameRow.append(node('span', mounted ? '已挂载' : '连接待确认', 'mount ' + (mounted ? 'good' : 'bad')));
 
@@ -394,7 +395,7 @@ function renderStorage() {
     const meter = node('progress', undefined, usedPct > 85 ? 'capacity-meter low' : 'capacity-meter');
     meter.max = 100;
     meter.value = usedPct;
-    meter.setAttribute('aria-label', targetLabel(t.id, false) + ' 已用 ' + usedPct + '%');
+    meter.setAttribute('aria-label', storageTitle + ' 已用 ' + usedPct + '%');
 
     row.append(nameRow, ident, useLine, meter);
     box.append(row);
