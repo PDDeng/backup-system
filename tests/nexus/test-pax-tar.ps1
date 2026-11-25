@@ -155,6 +155,33 @@ try{
  Check 'archive size gate rejects size mismatch' $rejected
  $rejected=$false;try{Test-NexusArchiveSizes $sizeDir @(@{Name='missing.tar';Bytes=1})}catch{$rejected=$true}
  Check 'archive size gate rejects missing archive' $rejected
+
+ # I: Win32 byte-range lock (ERROR_LOCK_VIOLATION=33) during FileStream.Read
+ $brSrc=Join-Path $root 'br-src';[void][IO.Directory]::CreateDirectory($brSrc);[void]$dirs.Add($brSrc)
+ $brFile=Join-Path $brSrc 'range.lock';MakeFile $brFile ([Text.Encoding]::ASCII.GetBytes('LOCKED-PAYLOAD-1234'))
+ $brOk=Join-Path $brSrc 'plain.txt';MakeFile $brOk ([Text.Encoding]::ASCII.GetBytes('ok-after-lock'))
+ $brFs=New-Object IO.FileStream -ArgumentList $brFile,([IO.FileMode]::Open),([IO.FileAccess]::ReadWrite),([IO.FileShare]::ReadWrite)
+ $brTar=Join-Path $out 'br-hot.tar'
+ try{
+  $brFs.Lock(0,19)
+  $brRes=Write-NexusArchive $brSrc $brTar 'work/' @('range.lock','plain.txt') 0 $true
+  [void]$files.Add($brTar)
+  $brEntries=@([NexusPaxReader]::List($brTar))
+  Check 'hot pass defers byte-range locked file (Win32 33) and keeps tar valid' (($brRes.Locked -contains 'range.lock') -and (-not $brRes.Snapshot.ContainsKey('range.lock')) -and $brRes.Snapshot.ContainsKey('plain.txt') -and ($brEntries.Count -eq 2) -and ($brEntries[0].Size -eq 19) -and ($brEntries[1].Name -eq 'work/plain.txt'))
+  $brStoppedTar=Join-Path $out 'br-stop.tar'
+  $rejected=$false;try{[void](Write-NexusArchive $brSrc $brStoppedTar 'work/' @('range.lock') 0 $false)}catch{$rejected=$true}
+  if([IO.File]::Exists($brStoppedTar)){[void]$files.Add($brStoppedTar)}
+  Check 'stopped pass rejects byte-range locked file instead of zero-padding' $rejected
+  $brFs.Unlock(0,19)
+ }finally{$brFs.Dispose()}
+ $brChanged=New-Object Collections.ArrayList;$brDeleted=New-Object Collections.ArrayList
+ [NexusPaxArchiver]::Delta($brSrc,$brRes.Snapshot,$brRes.Locked,$brChanged,$brDeleted,0)
+ Check 'stopped delta picks up previously byte-range locked file once unlocked' (($brChanged -contains 'range.lock') -and ($brChanged.Count -eq 1) -and ($brDeleted.Count -eq 0))
+ $brDeltaTar=Join-Path $out 'br-delta.tar'
+ $brDelta=Write-NexusArchive $brSrc $brDeltaTar 'work/' $brChanged 0 $false
+ [void]$files.Add($brDeltaTar)
+ $brDeltaEntries=@([NexusPaxReader]::List($brDeltaTar))
+ Check 'stopped delta archives unlocked byte-range file cleanly' (($brDelta.Locked.Count -eq 0) -and ($brDeltaEntries.Count -eq 1) -and ($brDeltaEntries[0].Name -eq 'work/range.lock') -and ($brDeltaEntries[0].Size -eq 19))
 }finally{
  if($lockFs){$lockFs.Dispose()}
  if($longFile){[void][PaxFixture]::DeleteFileW(('\\?\'+$longFile))}
