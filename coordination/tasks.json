@@ -9,7 +9,7 @@
     "status": "todo",
     "depends_on": [],
     "allowed_paths": [],
-    "branch": "ai/worker-01/TASK-001",
+    "branch": "ai/opencode/TASK-001",
     "acceptance_criteria": [],
     "test_commands": [],
     "evidence_paths": [],
