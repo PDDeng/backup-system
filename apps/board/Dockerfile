@@ -4,7 +4,7 @@ COPY requirements.txt .
 COPY wheelhouse /wheels
 COPY verify_wheels.py .
 RUN python verify_wheels.py /wheels && pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
-COPY app.py model.py acceptance.py ./
+COPY app.py model.py acceptance.py webhook_settings.py ./
 COPY static ./static
 USER 10001:10001
 EXPOSE 8100

@@ -58,3 +58,23 @@ for a in out['assets']:
 root=Path('/var/lib/backup-board-feed');root.mkdir(mode=0o755,exist_ok=True)
 root.chmod(0o755)
 p=root/'snapshot.json';tmp=root/'snapshot.next';tmp.write_text(json.dumps(out,ensure_ascii=False),encoding='utf-8');tmp.chmod(0o644);os.replace(tmp,p)
+
+# Optional real-evidence extras: 7-day trend (from real NAS receipts + daily snapshots) & read-only SMB directory browser
+try:
+ from model import project as project_board
+ from feed_extras import build_history_7d, build_smb_browser
+ hist_path=root/'history-7d.json'
+ prior_hist=None
+ try:
+  if hist_path.is_file() and not hist_path.is_symlink() and hist_path.stat().st_size<=2*1024**2:
+   prior_hist=json.loads(hist_path.read_text(encoding='utf-8-sig'))
+ except (OSError,ValueError):pass
+ projected_today=project_board(out)
+ hist_data=build_history_7d(out,projected_today,prior_history=prior_hist)
+ htmp=root/'history-7d.next';htmp.write_text(json.dumps(hist_data,ensure_ascii=False),encoding='utf-8');htmp.chmod(0o644);os.replace(htmp,hist_path)
+
+ smb_data=build_smb_browser(out.get('targets',[]))
+ smb_path=root/'smb-browser.json'
+ stmp=root/'smb-browser.next';stmp.write_text(json.dumps(smb_data,ensure_ascii=False),encoding='utf-8');stmp.chmod(0o644);os.replace(stmp,smb_path)
+except Exception:
+ pass
