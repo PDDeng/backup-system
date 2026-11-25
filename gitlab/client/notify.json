@@ -1,0 +1,6 @@
+{
+  "Enabled": false,
+  "NotifyStart": true,
+  "NotifySuccess": true,
+  "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=REPLACE_ME"
+}

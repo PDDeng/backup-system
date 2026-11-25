@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>核心资产备份中台 · 2.0</title>
+<style>body{font:15px system-ui;margin:0;background:#f1f5f9;color:#172b45}header,main{max-width:1250px;margin:auto;padding:24px}h1{margin:0 0 12px}button,input{padding:10px;border:1px solid #c3d0df;border-radius:7px;background:white;margin:3px}button{cursor:pointer}article,.summary{background:white;padding:20px;border:1px solid #d9e3ef;border-radius:12px;margin:15px 0}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:9px;border-bottom:1px solid #e7edf4}.muted{color:#63758c}.bad{color:#b42335}.ok{color:#087550}pre{background:#122239;color:#dce9f7;padding:16px;white-space:pre-wrap;max-height:460px;overflow:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}.pill{background:#eaf0f8;padding:5px 9px;border-radius:6px}small{display:block;margin:7px 0}#error{color:#b42335}</style>
+<header><h1>核心资产备份中台 <small>2.0 · 连接、容量、分发结果</small></h1><p class="muted">客户端生成 → ops 收集 → SMB 分发。页面不会触发源端备份、重启服务或修改凭证。</p><input id="token" type="password" placeholder="管理令牌" autocomplete="off"><button id="connect">连接</button><button id="checkAll">一键检查全部连接与容量</button><button id="runAll">全部收集 / 重试分发</button><span id="error"></span><div id="summary" class="summary">请连接；检查结果展示采样时间，不代表持续在线。</div></header>
+<main><div id="jobs"></div><h2>执行日志</h2><pre id="log">选择任务查看日志。后台 cron 的记录仍在 /var/log/core-backup-all-smb.log。</pre><p class="muted">Oracle、SVN、Nexus、Harbor 尚未接入此页面的执行适配器；不会因目录中有文件而显示备份成功。</p></main>
+<script>
+let token='',selected='';const $=id=>document.getElementById(id);
+function node(tag,text,cls){let e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;return e;}
+function size(n){return typeof n==='number'?(n/1073741824).toFixed(1)+' GiB':'未采集';}
+async function api(path,body){let r=await fetch('/api/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});let x=await r.json();if(!r.ok)throw Error(x.error||r.status);return x;}
+async function action(id,action){try{await api('action',{id,action});await refresh();}catch(e){$('error').textContent=e.message;}}
+function button(parent,label,fn){let b=node('button',label);b.onclick=fn;parent.append(b);}
+async function refresh(){try{let d=await api('jobs');$('error').textContent='';$('summary').textContent='ops 本机剩余 '+size(d.ops.free_bytes)+' / '+size(d.ops.total_bytes)+' · '+d.time+' · 页面上传固定采用大小检查，MD5由周任务独立复核';$('jobs').replaceChildren();for(let j of d.jobs){let a=node('article','');a.append(node('h2',j.asset));a.append(node('p',j.os.toUpperCase()+' · '+j.host+' · '+j.status));a.append(node('p','SMB保留 '+j.keep_days+' 个成功日期 · 清理模式 '+j.cleanup_mode+' · 页面周期调度 '+(j.enabled?'已启用':'关闭（由cron调度）')));
+let report=[j.check,j.upload].filter(Boolean).sort((a,b)=>b.finished.localeCompare(a.finished))[0],r=report?.result,src=r?.source;
+a.append(node('small','最近环境检查：'+(report?.finished||'尚未检查')+'；SSH：'+(src?.connection||'未采集')));
+if(src){a.append(node('small','源端最新完成标记：'+(src.latest_marker||'无')+'；备份大小 '+size(src.backup_bytes)));if(src.error)a.append(node('p',src.error,'bad'));if(src.disk)a.append(node('pre',src.disk));}
+let table=node('table',''),head=node('tr','');for(let s of ['目标 / 类型','连接及读写','可用 / 总容量','采样耗时'])head.append(node('th',s));table.append(head);for(let id of j.targets){let t=r?.targets?.find(t=>t.id===id),tr=node('tr','');for(let s of [id+' / '+(t?.os||'未采集'),t?.status==='ok'?'通过':(t?.error||'未采集'),size(t?.free_bytes)+' / '+size(t?.total_bytes),t? t.seconds+' 秒':'—'])tr.append(node('td',s));table.append(tr);}a.append(table);
+let last=j.last;a.append(node('p','最后分发批次：'+(last?.run||'暂无结果')));a.append(node('p','校验：'+(last?(last.verification==='pending_md5'?'存在及大小检查；MD5待复核':last.verification==='md5_verified'?'MD5已通过':'旧记录未标明校验方式'):'未记录')));
+if(last?.targets)a.append(node('p','分发结果：'+Object.entries(last.targets).map(([k,v])=>k+' '+(v?'成功':'失败')).join(' · ')));
+if(last?.collection_seconds!=null)a.append(node('small','收集耗时 '+last.collection_seconds+' 秒；完成于 '+last.finished));
+if(last?.target_details)for(let [id,t] of Object.entries(last.target_details))a.append(node('small',id+' · '+t.status+' · 上传及校验 '+(t.upload_verify_seconds??'—')+' 秒 · 清理 '+(t.cleanup_seconds??'—')+' 秒 · 删除运行 '+(t.deleted_runs??'—')+' · '+(t.error||'')));
+let upload=j.upload;a.append(node('small','最近分发报告：'+(upload?.finished||'升级后尚未执行')+'；本次收集/分发总耗时：'+(upload?.result?.seconds??'未记录')+' 秒（不含客户端生成时间）'));
+if(upload?.result?.error)a.append(node('p',upload.result.error,'bad'));
+button(a,'检查连接与容量',()=>action(j.id,'check'));button(a,'收集 / 重试',()=>{if(confirm('按现有配置执行上传与保留清理，不会生成源端备份。继续？'))action(j.id,'run');});button(a,'查看日志',()=>{selected=j.id;logs();});$('jobs').append(a);}if(selected)await logs();}catch(e){$('error').textContent=e.message;}}
+async function logs(){let d=await api('logs?id='+encodeURIComponent(selected));$('log').textContent=d.text;}
+$('connect').onclick=()=>{token=$('token').value.trim();$('token').value='';refresh();};$('checkAll').onclick=()=>action('all','check');$('runAll').onclick=()=>{if(confirm('串行收集所有已登记GitLab并执行配置中的保留策略。继续？'))action('all','run');};setInterval(()=>{if(token)refresh();},10000);
+</script></html>

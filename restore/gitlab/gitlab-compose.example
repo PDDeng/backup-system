@@ -1,0 +1,8 @@
+COMPOSE_PROJECT_NAME=restore-gitlab52
+GITLAB_VERSION=10.5.8-ce.0
+TEST_HOSTNAME=restore-gitlab52
+TEST_ROOT=/var/lib/core-backup-restore/compose-gitlab52-test01
+BIND_IP=10.10.10.253
+PUBLIC_HOST=10.10.10.253
+HTTP_PORT=18086
+SSH_PORT=22286

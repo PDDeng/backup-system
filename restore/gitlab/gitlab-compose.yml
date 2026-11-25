@@ -1,0 +1,37 @@
+name: ${COMPOSE_PROJECT_NAME:?Set a unique restore project name}
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:${GITLAB_VERSION:?Use the exact backup GitLab CE version}
+    hostname: ${TEST_HOSTNAME:-gitlab-restore}
+    restart: "no"
+    shm_size: "256m"
+    cpus: 2
+    mem_limit: 4g
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${HTTP_PORT:?Set an unused test HTTP port}:80"
+      - "${BIND_IP:-127.0.0.1}:${SSH_PORT:?Set an unused test SSH port}:22"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://${PUBLIC_HOST:?Set the test server IP}:${HTTP_PORT}'
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        gitlab_rails['gitlab_shell_ssh_port'] = ${SSH_PORT}
+        gitlab_rails['smtp_enable'] = false
+        gitlab_rails['incoming_email_enabled'] = false
+        sidekiq['enable'] = false
+        letsencrypt['enable'] = false
+    volumes:
+      - type: bind
+        source: ${TEST_ROOT:?Set a new absolute test directory}/config
+        target: /etc/gitlab
+      - type: bind
+        source: ${TEST_ROOT}/logs
+        target: /var/log/gitlab
+      - type: bind
+        source: ${TEST_ROOT}/data
+        target: /var/opt/gitlab
+    networks:
+      - restore
+networks:
+  restore:
+    internal: true

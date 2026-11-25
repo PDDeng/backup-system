@@ -1,0 +1,27 @@
+{
+  "label": "Oracle41",
+  "asset": "oracle02_10.10.10.41_uat\u6d4b\u8bd5\u73af\u5883\u6570\u636e\u5e93",
+  "state_dir": "/var/lib/core-backup-ops/oracle41",
+  "required_owner": "oracle-rman-v1",
+  "required_verification": "all_logged_RMAN_pieces_validated",
+  "max_age_days": 2,
+  "rate_mib": 8,
+  "source": {
+    "id": "nas243",
+    "mount": "/mnt/core243",
+    "source": "//10.10.11.243/\u8d44\u6e90\u5907\u4efd"
+  },
+  "targets": [
+    {
+      "id": "nas240",
+      "mount": "/mnt/core240",
+      "source": "//192.168.5.240/\u8d44\u6e90\u5907\u4efd"
+    },
+    {
+      "id": "win254",
+      "mount": "/mnt/core254",
+      "source": "//10.10.10.254/\u8d44\u6e90\u5907\u4efd"
+    }
+  ],
+  "source_evidence_ref": "/var/lib/core-backup-ops/oracle41/evidence-20261124/rman-once-state.json"
+}

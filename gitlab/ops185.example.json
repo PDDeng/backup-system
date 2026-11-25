@@ -1,0 +1,31 @@
+{
+  "asset": "gitlab04_10.10.10.185_处方外配组",
+  "host": "10.10.10.185",
+  "user": "root",
+  "key": "/opt/core-backup-ops/ssh/id_ed25519",
+  "known_hosts": "/opt/core-backup-ops/ssh/known_hosts",
+  "backup_dir": "/home/gitlab/data/backups",
+  "state_dir": "/var/lib/core-backup-ops/gitlab185",
+  "notify_config": "/etc/core-backup-ops/notify.json",
+  "keep_days": 15,
+  "cleanup_mode": "delete",
+  "minimum_free_gb": 5,
+  "transfer_timeout_seconds": 7200,
+  "targets": [
+    {
+      "id": "nas243",
+      "mount": "/mnt/core243",
+      "source": "//10.10.11.243/资源备份"
+    },
+    {
+      "id": "nas240",
+      "mount": "/mnt/core240",
+      "source": "//192.168.5.240/资源备份"
+    },
+    {
+      "id": "win254",
+      "mount": "/mnt/core254",
+      "source": "//10.10.10.254/资源备份"
+    }
+  ]
+}

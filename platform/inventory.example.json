@@ -1,0 +1,280 @@
+{
+  "schema_version": "core-backup-inventory/1.0",
+  "storages": {
+    "nas243": {
+      "transport": "mounted_smb",
+      "mount": "/mnt/core243",
+      "credential_ref": "nas243"
+    },
+    "nas240": {
+      "transport": "mounted_smb",
+      "mount": "/mnt/core240",
+      "credential_ref": "nas240"
+    },
+    "win254": {
+      "transport": "mounted_smb",
+      "mount": "/mnt/core254",
+      "credential_ref": "win254"
+    },
+    "kingdee_nas6240": {
+      "transport": "windows_smb",
+      "share": "\\\\192.168.6.240\\\u74a7\u52ec\u7c2e\u6fb6\u56e6\u5524",
+      "credential_ref": "kingdee_nas6240",
+      "note": "Independent NAS; not 192.168.5.240; source-side access"
+    }
+  },
+  "policies": {
+    "daily15": {
+      "keep_complete_cycles": 15,
+      "verify": "size_only",
+      "historical_md5": "Saturday 18:00 Asia/Shanghai",
+      "cleanup": "inherit_existing",
+      "target_overrides": {
+        "win254": {
+          "keep_complete_cycles": 7
+        }
+      }
+    },
+    "weekly3": {
+      "keep_complete_cycles": 3,
+      "verify": "size_only",
+      "cleanup": "inherit_existing"
+    }
+  },
+  "assets": [
+    {
+      "id": "185",
+      "component": "gitlab",
+      "os": "linux",
+      "host": "10.10.10.185",
+      "credential_ref": "ops_ssh",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "legacy_config_ref": "/etc/core-backup-ops/ops185.json",
+      "scheduler_owner": "client_cron",
+      "source_config": "/etc/core-backup/gitlab.conf",
+      "source_script": "/opt/core-backup/gitlab-backup.sh",
+      "enabled": false
+    },
+    {
+      "id": "52",
+      "component": "gitlab",
+      "os": "linux",
+      "host": "10.10.10.52",
+      "credential_ref": "ops_ssh",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "legacy_config_ref": "/etc/core-backup-ops/ops52.json",
+      "scheduler_owner": "client_cron",
+      "source_config": "/etc/core-backup/gitlab.conf",
+      "source_script": "/opt/core-backup/gitlab-backup.sh",
+      "enabled": false
+    },
+    {
+      "id": "191",
+      "component": "gitlab",
+      "os": "linux",
+      "host": "10.10.10.191",
+      "credential_ref": "ops_ssh",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "legacy_config_ref": "/etc/core-backup-ops/ops191.json",
+      "scheduler_owner": "client_cron",
+      "source_config": "/etc/core-backup/gitlab.conf",
+      "source_script": "/opt/core-backup/gitlab-backup.sh",
+      "enabled": false
+    },
+    {
+      "id": "247",
+      "component": "gitlab",
+      "os": "linux",
+      "host": "10.10.10.247",
+      "credential_ref": "ops_ssh",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "legacy_config_ref": "/etc/core-backup-ops/ops247.json",
+      "scheduler_owner": "client_cron",
+      "source_config": "/etc/core-backup/gitlab.conf",
+      "source_script": "/opt/core-backup/gitlab-backup.sh",
+      "enabled": false
+    },
+    {
+      "id": "14",
+      "component": "gitlab",
+      "os": "linux",
+      "host": "10.10.10.14",
+      "credential_ref": "ops_ssh",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "legacy_config_ref": "/etc/core-backup-ops/ops14.json",
+      "scheduler_owner": "client_cron",
+      "source_config": "/etc/core-backup/gitlab.conf",
+      "source_script": "/opt/core-backup/gitlab-backup.sh",
+      "enabled": false
+    },
+    {
+      "id": "16",
+      "component": "gitlab",
+      "os": "linux",
+      "host": "192.168.0.16",
+      "credential_ref": "ops_ssh_rsa16",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "legacy_config_ref": "/etc/core-backup-ops/ops16.json",
+      "scheduler_owner": "client_cron",
+      "source_config": "/etc/core-backup/gitlab.conf",
+      "source_script": "/opt/core-backup/gitlab-backup.sh",
+      "enabled": false
+    },
+    {
+      "id": "oracle46",
+      "component": "oracle",
+      "os": "windows",
+      "host": "10.10.10.46",
+      "credential_ref": "oracle46",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "win254"
+      ],
+      "scheduler_owner": "windows_task",
+      "enabled": false,
+      "schedule_status": "Confirm native backup acceptance before installing recurring task"
+    },
+    {
+      "id": "oracle41",
+      "component": "oracle",
+      "os": "windows",
+      "host": "10.10.10.41",
+      "credential_ref": "oracle41",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "scheduler_owner": "windows_task",
+      "enabled": false,
+      "schedule_status": "Confirm native backup acceptance before installing recurring task"
+    },
+    {
+      "id": "nexus51",
+      "component": "nexus2",
+      "os": "windows",
+      "host": "10.10.10.51",
+      "credential_ref": "nexus51",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "scheduler_owner": "windows_task",
+      "enabled": false,
+      "task": "CoreBackup-Nexus51"
+    },
+    {
+      "id": "svn29",
+      "component": "svn",
+      "os": "windows",
+      "host": "192.168.0.29",
+      "credential_ref": "svn29",
+      "policy": "daily15",
+      "storages": [
+        "nas240"
+      ],
+      "scheduler_owner": "windows_task",
+      "enabled": false,
+      "schedule_status": "Confirm native backup acceptance before installing recurring task"
+    },
+    {
+      "id": "crm200",
+      "component": "sqlserver",
+      "os": "windows",
+      "host": "192.168.0.200",
+      "credential_ref": "crm200",
+      "policy": "daily15",
+      "storages": [
+        "nas240"
+      ],
+      "scheduler_owner": "windows_task",
+      "enabled": false,
+      "task": "CoreBackup-CRM200"
+    },
+    {
+      "id": "dse27",
+      "component": "existing_sql_backup",
+      "os": "windows",
+      "host": "192.168.0.27",
+      "credential_ref": "dse27",
+      "policy": "daily15",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "scheduler_owner": "windows_task",
+      "enabled": false,
+      "task": "CoreBackup-DSE27",
+      "source_frequency": "weekly",
+      "upload_frequency": "daily latest complete cycle",
+      "distribution_owner": "ops collector",
+      "distribution_frequency": "hourly minute20"
+    },
+    {
+      "id": "kingdee252",
+      "component": "existing_kingdee_backup",
+      "os": "windows",
+      "host": "192.168.0.80",
+      "credential_ref": "kingdee252",
+      "policy": "daily15",
+      "storages": [
+        "kingdee_nas6240"
+      ],
+      "scheduler_owner": "windows_task",
+      "enabled": false,
+      "task": "CoreBackup-Kingdee252",
+      "asset_ip": "192.168.6.252"
+    },
+    {
+      "id": "harbor248",
+      "component": "harbor",
+      "os": "linux",
+      "host": "10.10.11.248",
+      "credential_ref": "ops_ssh",
+      "policy": "weekly3",
+      "storages": [
+        "nas243",
+        "nas240",
+        "win254"
+      ],
+      "legacy_config_ref": "/etc/core-backup-ops/harbor248.json",
+      "scheduler_owner": "ops_systemd",
+      "enabled": false
+    }
+  ]
+}

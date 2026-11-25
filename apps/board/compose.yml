@@ -1,0 +1,54 @@
+name: core-backup-board
+services:
+  db:
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: backup_board
+      POSTGRES_USER: board
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes:
+      - board_db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U board -d backup_board"]
+      interval: 5s
+      timeout: 3s
+      retries: 120
+      start_period: 60s
+    mem_limit: 384m
+    networks: [private]
+  dashboard:
+    container_name: core-backup-board-web-v1
+    image: core-backup-board-web
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      DB_HOST: db
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      APP_SECRET_FILE: /run/secrets/app_secret
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SNAPSHOT: /evidence/snapshot.json
+    secrets: [db_password, app_secret]
+    volumes:
+      - /var/lib/backup-board-feed:/evidence:ro
+    command: [sh, -c, "python app.py && exec gunicorn --bind 0.0.0.0:8100 --workers 2 --threads 4 --timeout 30 --access-logfile - app:app"]
+    ports:
+      - "${BIND_IP:-0.0.0.0}:${PORT:-8100}:8100"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    networks: [private, frontend]
+secrets:
+  db_password: {file: ./secrets/db_password}
+  app_secret: {file: ./secrets/app_secret}
+volumes:
+  board_db:
+networks:
+  frontend: {}
+  private:
+    internal: true

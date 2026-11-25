@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict');
+const badge=require('./static/acceptance-view.js');
+const make=(run,status='passed')=>({id:1,record:{backup_run:run,status}});
+assert.match(badge({}).text,/尚未验收/);
+assert.match(badge({copies:[{run:'new',arrived:true}],manual_acceptance:[make('old')]}).text,/历史/);
+assert.match(badge({copies:[{run:'new',arrived:true}],manual_acceptance:[make('new')]}).text,/通过.*new/);
+assert.equal(badge({copies:[{run:'new',arrived:true}],manual_acceptance:[make('new','failed')]}).kind,'bad');
+assert.match(badge({copies:[{run:'new',arrived:false}],manual_acceptance:[make('new')]}).text,/历史/);
+assert.equal(badge({copies:[{run:'new',arrived:true}],manual_acceptance:[make('new'),{id:2,record:{backup_run:'new',status:'failed'}}]}).kind,'bad');
+console.log('6 manual acceptance display boundary cases passed');

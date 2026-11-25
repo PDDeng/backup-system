@@ -1,0 +1,27 @@
+name: core-backup-board-acceptance
+services:
+  dashboard:
+    image: core-backup-board-web:acceptance-md5-20261125
+    container_name: core-backup-board-acceptance-20261125
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_NAME: backup_board
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      APP_SECRET_FILE: /run/secrets/app_secret
+      SNAPSHOT: /evidence/snapshot.json
+    volumes:
+      - /opt/backup-board/secrets/db_password:/run/secrets/db_password:ro
+      - /opt/backup-board/secrets/app_secret:/run/secrets/app_secret:ro
+      - /var/lib/backup-board-feed:/evidence:ro
+    command: [sh, -c, "python app.py && exec gunicorn --bind 0.0.0.0:8100 --workers 2 --threads 4 --timeout 30 --access-logfile - app:app"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    networks: [existing]
+networks:
+  existing:
+    external: true
+    name: core-backup-board_private

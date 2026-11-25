@@ -1,0 +1,18 @@
+{
+  "asset":"harbor01_10.10.11.248_镜像仓库",
+  "host":"10.10.11.248",
+  "user":"root",
+  "key":"/opt/core-backup-ops/ssh/id_ed25519",
+  "known_hosts":"/opt/core-backup-ops/ssh/known_hosts",
+  "deployment":"/root/repository/tools/harbor",
+  "api_netrc":"/root/.harbor-backup.netrc",
+  "modules_dir":"/opt/core-backup-modular",
+  "state_dir":"/var/lib/core-backup-ops/harbor248",
+  "notify_config":"/etc/core-backup-ops/notify.json",
+  "stream_timeout_seconds":21600,
+  "targets":[
+    {"id":"nas243","mount":"/mnt/core243","source":"//10.10.11.243/资源备份"},
+    {"id":"nas240","mount":"/mnt/core240","source":"//192.168.5.240/资源备份"},
+    {"id":"win254","mount":"/mnt/core254","source":"//10.10.10.254/资源备份"}
+  ]
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=Core backup collection portal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+Environment=TZ=Asia/Shanghai
+WorkingDirectory=/opt/core-backup-modular
+ExecStart=/usr/bin/python3 -u /opt/core-backup-modular/portal.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

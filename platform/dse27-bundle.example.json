@@ -1,0 +1,30 @@
+{
+  "label": "DSE27",
+  "asset": "dse01_192.168.0.27_dse",
+  "state_dir": "/var/lib/core-backup-ops/dse27",
+  "source_format": "dse-nas-v1",
+  "layout": "date",
+  "required_owner": "dse-standard-adapter-v1",
+  "required_verification": "not_provided_by_source",
+  "max_age_days": 9,
+  "rate_mib": 8,
+  "source": {
+    "id": "nas240",
+    "mount": "/mnt/core240",
+    "source": "//192.168.5.240/\u8d44\u6e90\u5907\u4efd"
+  },
+  "targets": [
+    {
+      "id": "nas243",
+      "mount": "/mnt/core243",
+      "source": "//10.10.11.243/\u8d44\u6e90\u5907\u4efd",
+      "keep_days": 15
+    },
+    {
+      "id": "win254",
+      "mount": "/mnt/core254",
+      "source": "//10.10.10.254/\u8d44\u6e90\u5907\u4efd",
+      "keep_days": 7
+    }
+  ]
+}

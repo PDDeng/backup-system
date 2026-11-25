@@ -1,0 +1,13 @@
+{
+  "verify_md5": false,
+  "max_backup_age_hours": 36,
+  "notify_config": "/etc/core-backup-ops/notify.json",
+  "os_by_server": {
+    "185": "linux",
+    "52": "linux",
+    "191": "linux",
+    "247": "linux",
+    "14": "linux",
+    "16": "linux"
+  }
+}
