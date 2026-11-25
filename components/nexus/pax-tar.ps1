@@ -132,8 +132,8 @@ public class NexusPaxWriter : IDisposable {
       try {
         n = data.Read(copyBuf, 0, (int)Math.Min((long)copyBuf.Length, left));
       } catch (IOException ex) {
-        int code = Marshal.GetHRForException(ex) & 0xFFFF;
-        if (allowReadLock && (code == 33 || code == 32)) {
+        int hr = Marshal.GetHRForException(ex);
+        if (allowReadLock && (hr == unchecked((int)0x80070021) || hr == unchecked((int)0x80070020))) {
           padded = left;
           ZeroFill(left);
           left = 0;
@@ -327,9 +327,9 @@ public class NexusPaxArchiver {
     return names;
   }
   // Archives the named files (relative, '/' separated).
-  // Deferred (no snapshot record, listed in locked): sharing violations, files truncated or changed while reading.
+  // Deferred (no snapshot record, listed in locked): open-time sharing/lock violations, hot-read byte-range locks, or files truncated/changed while reading.
   // Hot pass (allowTransient): a file that vanished (Win32 2/3) is skipped; the stopped delta sees the removal.
-  // Stopped pass: a vanished file is an error because the stopped snapshot must be complete.
+  // Stopped pass: a vanished or read-locked file is an error because the stopped snapshot must be complete.
   public static Hashtable ArchiveNames(string root, string prefix, NexusPaxWriter w, IList names, IList locked, bool allowTransient) {
     Hashtable snapshot = new Hashtable();
     foreach (string rel in names) {
@@ -366,7 +366,13 @@ public class NexusPaxArchiver {
       if (old == null || old[0] != e.Length || old[1] != e.WriteTicks) changed.Add(rel);
     }
     foreach (object k in before.Keys) if (!seen.ContainsKey(k)) deleted.Add(k);
-    foreach (string f in forced) if (seen.ContainsKey(f) && !changed.Contains(f)) changed.Add(f);
+    foreach (string f in forced) {
+      if (seen.ContainsKey(f)) {
+        if (!changed.Contains(f)) changed.Add(f);
+      } else if (!deleted.Contains(f)) {
+        deleted.Add(f);
+      }
+    }
   }
 }
 '@

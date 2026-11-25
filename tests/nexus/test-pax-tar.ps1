@@ -156,32 +156,48 @@ try{
  $rejected=$false;try{Test-NexusArchiveSizes $sizeDir @(@{Name='missing.tar';Bytes=1})}catch{$rejected=$true}
  Check 'archive size gate rejects missing archive' $rejected
 
- # I: Win32 byte-range lock (ERROR_LOCK_VIOLATION=33) during FileStream.Read
+ # I: Win32 byte-range lock (ERROR_LOCK_VIOLATION=0x80070021) during FileStream.Read, mid-file lock, non-Win32 IOException, and vanished-lock deletion
  $brSrc=Join-Path $root 'br-src';[void][IO.Directory]::CreateDirectory($brSrc);[void]$dirs.Add($brSrc)
  $brFile=Join-Path $brSrc 'range.lock';MakeFile $brFile ([Text.Encoding]::ASCII.GetBytes('LOCKED-PAYLOAD-1234'))
+ $brMid=Join-Path $brSrc 'mid.lock';$midBytes=New-Object byte[] 1200000;for($i=0;$i -lt 1200000;$i++){$midBytes[$i]=[byte](65+($i%26))};MakeFile $brMid $midBytes
+ $brVanish=Join-Path $brSrc 'vanish.lock';MakeFile $brVanish ([Text.Encoding]::ASCII.GetBytes('TRANSIENT-LOCK'))
  $brOk=Join-Path $brSrc 'plain.txt';MakeFile $brOk ([Text.Encoding]::ASCII.GetBytes('ok-after-lock'))
  $brFs=New-Object IO.FileStream -ArgumentList $brFile,([IO.FileMode]::Open),([IO.FileAccess]::ReadWrite),([IO.FileShare]::ReadWrite)
+ $brMidFs=New-Object IO.FileStream -ArgumentList $brMid,([IO.FileMode]::Open),([IO.FileAccess]::ReadWrite),([IO.FileShare]::ReadWrite)
+ $brVanishFs=New-Object IO.FileStream -ArgumentList $brVanish,([IO.FileMode]::Open),([IO.FileAccess]::ReadWrite),([IO.FileShare]::ReadWrite)
  $brTar=Join-Path $out 'br-hot.tar'
  try{
   $brFs.Lock(0,19)
-  $brRes=Write-NexusArchive $brSrc $brTar 'work/' @('range.lock','plain.txt') 0 $true
+  $brMidFs.Lock(1050000,1000)
+  $brVanishFs.Lock(0,14)
+  $brRes=Write-NexusArchive $brSrc $brTar 'work/' @('range.lock','mid.lock','vanish.lock','plain.txt') 0 $true
   [void]$files.Add($brTar)
   $brEntries=@([NexusPaxReader]::List($brTar))
-  Check 'hot pass defers byte-range locked file (Win32 33) and keeps tar valid' (($brRes.Locked -contains 'range.lock') -and (-not $brRes.Snapshot.ContainsKey('range.lock')) -and $brRes.Snapshot.ContainsKey('plain.txt') -and ($brEntries.Count -eq 2) -and ($brEntries[0].Size -eq 19) -and ($brEntries[1].Name -eq 'work/plain.txt'))
+  Check 'hot pass defers byte-0 and mid-file byte-range locks (Win32 33) and keeps tar valid' (($brRes.Locked -contains 'range.lock') -and ($brRes.Locked -contains 'mid.lock') -and ($brRes.Locked -contains 'vanish.lock') -and (-not $brRes.Snapshot.ContainsKey('range.lock')) -and (-not $brRes.Snapshot.ContainsKey('mid.lock')) -and $brRes.Snapshot.ContainsKey('plain.txt') -and ($brEntries.Count -eq 4) -and ($brEntries[0].Size -eq 19) -and ($brEntries[1].Size -eq 1200000) -and ($brEntries[3].Name -eq 'work/plain.txt'))
+  Check 'zero-filled hot tar bytes and sha256 match file on disk' (($brRes.Bytes -eq ([IO.FileInfo]$brTar).Length) -and ($brRes.Sha256 -eq (Get-NexusSha256 $brTar)))
   $brStoppedTar=Join-Path $out 'br-stop.tar'
   $rejected=$false;try{[void](Write-NexusArchive $brSrc $brStoppedTar 'work/' @('range.lock') 0 $false)}catch{$rejected=$true}
   if([IO.File]::Exists($brStoppedTar)){[void]$files.Add($brStoppedTar)}
   Check 'stopped pass rejects byte-range locked file instead of zero-padding' $rejected
-  $brFs.Unlock(0,19)
- }finally{$brFs.Dispose()}
+  $brFs.Unlock(0,19);$brMidFs.Unlock(1050000,1000);$brVanishFs.Unlock(0,14)
+ }finally{$brFs.Dispose();$brMidFs.Dispose();$brVanishFs.Dispose()}
+ [IO.File]::Delete($brVanish)
  $brChanged=New-Object Collections.ArrayList;$brDeleted=New-Object Collections.ArrayList
  [NexusPaxArchiver]::Delta($brSrc,$brRes.Snapshot,$brRes.Locked,$brChanged,$brDeleted,0)
- Check 'stopped delta picks up previously byte-range locked file once unlocked' (($brChanged -contains 'range.lock') -and ($brChanged.Count -eq 1) -and ($brDeleted.Count -eq 0))
+ Check 'stopped delta picks up unlocked files and marks vanished locked file deleted' (($brChanged -contains 'range.lock') -and ($brChanged -contains 'mid.lock') -and (-not ($brChanged -contains 'vanish.lock')) -and ($brChanged.Count -eq 2) -and ($brDeleted -contains 'vanish.lock') -and ($brDeleted.Count -eq 1))
  $brDeltaTar=Join-Path $out 'br-delta.tar'
  $brDelta=Write-NexusArchive $brSrc $brDeltaTar 'work/' $brChanged 0 $false
  [void]$files.Add($brDeltaTar)
  $brDeltaEntries=@([NexusPaxReader]::List($brDeltaTar))
- Check 'stopped delta archives unlocked byte-range file cleanly' (($brDelta.Locked.Count -eq 0) -and ($brDeltaEntries.Count -eq 1) -and ($brDeltaEntries[0].Name -eq 'work/range.lock') -and ($brDeltaEntries[0].Size -eq 19))
+ $brDeltaText=[Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($brDeltaTar))
+ Check 'stopped delta archives unlocked byte-range file cleanly with real payload' (($brDelta.Locked.Count -eq 0) -and ($brDeltaEntries.Count -eq 2) -and ($brDeltaText.Contains('LOCKED-PAYLOAD-1234')))
+ if(-not ('NonWin32ErrStream' -as [type])){
+  Add-Type -TypeDefinition 'using System;using System.IO;public class NonWin32ErrStream:Stream{public override bool CanRead{get{return true;}}public override bool CanSeek{get{return false;}}public override bool CanWrite{get{return false;}}public override long Length{get{return 10;}}public override long Position{get{return 0;}set{}}public override void Flush(){}public override long Seek(long o,SeekOrigin r){return 0;}public override void SetLength(long v){}public override void Write(byte[] b,int o,int c){}public override int Read(byte[] b,int o,int c){throw new IOException("non-win32",unchecked((int)0x80130021));}}'
+ }
+ $nwMs=New-Object IO.MemoryStream;$nwW=New-Object NexusPaxWriter -ArgumentList $nwMs
+ $rejected=$false;try{[void]$nwW.AddFile('bad.bin',(New-Object NonWin32ErrStream),10,0,$true)}catch{$rejected=$true}
+ Check 'hot AddFile rejects non-FACILITY_WIN32 IOException with low word 33' $rejected
+ $nwW.Dispose();$nwMs.Dispose()
 }finally{
  if($lockFs){$lockFs.Dispose()}
  if($longFile){[void][PaxFixture]::DeleteFileW(('\\?\'+$longFile))}
