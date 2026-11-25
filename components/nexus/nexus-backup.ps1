@@ -1,4 +1,4 @@
-# Windows PowerShell 2+. Direct-to-NAS backup with bounded final sync and recovery task.
+﻿# Windows PowerShell 2+. Direct-to-NAS backup with bounded final sync and recovery task.
 param([switch]$CheckOnly)
 $ErrorActionPreference='Stop'
 $private=Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -22,7 +22,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
-public class NexusPathEntry { public string FullName; public long Length; }
+public class NexusPathEntry { public string FullName; public long Length; public long WriteTicks; }
 public class NexusLongPaths {
  [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] struct FindData {
   public uint attr;public System.Runtime.InteropServices.ComTypes.FILETIME creation,access,write;
@@ -45,7 +45,7 @@ public class NexusLongPaths {
     string path=dir+@"\"+d.name;
     if((d.attr&1024)!=0)throw new InvalidOperationException("Reparse point rejected: "+path);
     if((d.attr&16)!=0)stack.Push(path);
-    else{NexusPathEntry entry=new NexusPathEntry();entry.FullName=path;entry.Length=((long)d.high<<32)|d.low;yield return entry;}
+    else{NexusPathEntry entry=new NexusPathEntry();entry.FullName=path;entry.Length=((long)d.high<<32)|d.low;entry.WriteTicks=((long)d.write.dwHighDateTime<<32)|(long)(uint)d.write.dwLowDateTime;yield return entry;}
    }while(FindNextFileW(h,out d));int error=Marshal.GetLastWin32Error();if(error!=18)throw new Win32Exception(error,"Enumeration failed: "+dir);
    }finally{FindClose(h);}
   }
@@ -57,6 +57,7 @@ public class NexusLongPaths {
 
 '@
 # END_LONGPATH_HELPER
+. (Join-Path $private 'pax-tar.ps1')
 $utf8=New-Object Text.UTF8Encoding($false)
 [void][IO.Directory]::CreateDirectory((Join-Path $private 'logs'))
 $logfile=Join-Path $private ('logs\'+(Get-Date -Format 'yyyy-MM-dd')+'.log')
@@ -109,7 +110,7 @@ function Files([string]$root){
 }
 function CopyTree([string]$source,[string]$destination,[bool]$mirror,[int]$timeout){
  # Destination is a unique, private partial run or verified secondary run; never a source directory.
- if(-not $destination.StartsWith('\\') -or $destination -notlike '*.partial\*'){throw 'Copy destination must be inside a unique partial run'}
+ if(-not $destination.StartsWith('\\') -or ($destination -notlike '*.partial\*' -and $destination -notlike '*.partial')){throw 'Copy destination must be inside a unique partial run'}
  if($source -like '*"*' -or $destination -like '*"*'){throw 'Invalid quote in path'}
  $copyLog=Join-Path $private ('logs\robocopy-'+(Get-Date -Format yyyyMMddTHHmmss)+'-'+[guid]::NewGuid().ToString('N').Substring(0,6)+'.log')
  Log ('COPY_START source='+$source+' destination='+$destination+' copy_log='+$copyLog)
@@ -165,10 +166,16 @@ function Clean([string]$base){
  $deleted=0
  foreach($runInfo in $runs){
   if($keep -contains $runInfo.Date){continue}
-  $folder=$runInfo.Path;$r=$runInfo.Receipt
-  Verify (Join-Path $folder 'work') $r.Work;Verify (Join-Path $folder 'application') $r.Application
-  $allowed=@{};$allowed['backup-result.json']=$true
-  foreach($f in $r.Work){$allowed['work\'+$f.Name]=$true};foreach($f in $r.Application){$allowed['application\'+$f.Name]=$true}
+  $folder=$runInfo.Path;$r=$runInfo.Receipt;$allowed=@{}
+  $names=Get-NexusReceiptNames $r
+  if($null -eq $names){
+   Verify (Join-Path $folder 'work') $r.Work;Verify (Join-Path $folder 'application') $r.Application
+   $allowed['backup-result.json']=$true
+   foreach($f in $r.Work){$allowed['work\'+$f.Name]=$true};foreach($f in $r.Application){$allowed['application\'+$f.Name]=$true}
+  }else{
+   Test-NexusArchiveSizes $folder $r.Archives
+   foreach($n in $names){$allowed[$n]=$true}
+  }
   foreach($f in Files $folder){if(-not $allowed.ContainsKey($f.FullName.Substring($folder.Length+1))){throw 'Cleanup blocked: unknown file'}}
   # Remove only receipt-identified files, then empty directories. Never recursive delete.
   Log ('DELETE_INTENT '+$folder)
@@ -181,7 +188,7 @@ function Clean([string]$base){
 }
 $lock=$null;$stoppedByUs=$false;$watchdog=$null;$timer=[Diagnostics.Stopwatch]::StartNew();$run=$null
 try{
- Log ('VERSION=1.6-isolated-copy mode='+$(if($CheckOnly){'check'}else{'backup'}))
+ Log ('VERSION=1.7-pax-tar-v2 mode='+$(if($CheckOnly){'check'}else{'backup'}))
  $lock=[IO.File]::Open((Join-Path $private 'backup.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
  if(-not (Ready)){throw 'Nexus is not initially healthy; no stop performed'}
  if(-not [IO.Directory]::Exists($c.Home) -or -not [IO.Directory]::Exists($c.Work)){throw 'Nexus source path missing'}
@@ -214,25 +221,35 @@ try{
  $run=(Get-Date -Format 'yyyyMMddTHHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,6)
  $date=Get-Date -Format 'yyyy-MM-dd';$day=Join-Path $base $date;[void][IO.Directory]::CreateDirectory($day)
  $pending=Join-Path $day ('.'+$run+'.partial');[void][IO.Directory]::CreateDirectory($pending)
- Notice 'START' 'Live preseed to NAS243; final stopped sync follows; uploads/downloads briefly unavailable'
- # Preseed reduces stopped time; this is NOT published as a valid backup.
- CopyTree $c.Work (Join-Path $pending 'work') $false 7200
- CopyTree $c.Home (Join-Path $pending 'application') $false 3600
+ Notice 'START' 'Live streaming archive to NAS243; final stopped delta follows; uploads/downloads briefly unavailable'
+ # Phase 1 (hot): streamed PAX archives straight to NAS243 .partial. Not a valid backup by itself.
+ $preseed=Write-NexusArchive $c.Work (Join-Path $pending 'work-preseed.tar') 'work/' ([NexusPaxArchiver]::ListFiles($c.Work)) ([DateTime]::UtcNow.AddSeconds(7200).Ticks)
+ $application=Write-NexusArchive $c.Home (Join-Path $pending 'application.tar') 'application/' ([NexusPaxArchiver]::ListFiles($c.Home)) ([DateTime]::UtcNow.AddSeconds(3600).Ticks)
+ foreach($l in @($preseed.Locked)){Log ('HOT_LOCKED_DEFERRED work/'+$l)}
  $watchdog=ArmWatchdog
  $stoppedByUs=$true;$down=[Diagnostics.Stopwatch]::StartNew();Log 'STOPPING nexus-webapp'
  Stop-Service $c.Service
  (Get-Service $c.Service).WaitForStatus('Stopped',(New-Object TimeSpan(0,1,0)))
  try{
-  CopyTree $c.Work (Join-Path $pending 'work') $true $c.MaxStoppedCopySeconds
-  $left=$c.MaxStoppedCopySeconds-[int]$down.Elapsed.TotalSeconds
-  if($left -lt 1){throw 'Stopped copy budget exhausted'}
-  CopyTree $c.Home (Join-Path $pending 'application') $true $left
+  # Phase 2 (stopped): only changed/new/locked work files and deleted paths, bounded by MaxStoppedCopySeconds.
+  $stopDeadline=[DateTime]::UtcNow.AddSeconds($c.MaxStoppedCopySeconds).Ticks
+  $changed=New-Object Collections.ArrayList;$deleted=New-Object Collections.ArrayList
+  [NexusPaxArchiver]::Delta($c.Work,$preseed.Snapshot,$preseed.Locked,$changed,$deleted)
+  Log ('DELTA_COMPUTED changed='+$changed.Count+' deleted='+$deleted.Count)
+  $delta=Write-NexusArchive $c.Work (Join-Path $pending 'work-delta.tar') 'work/' $changed $stopDeadline
+  if($delta.Locked.Count -gt 0){throw ('Files still locked while Nexus is stopped; backup not published: '+$delta.Locked.Count)}
+  [IO.File]::WriteAllText((Join-Path $pending 'deleted-paths.json'),$json.Serialize(@($deleted.ToArray())),$utf8)
   if($down.Elapsed.TotalMinutes -ge ($c.RestartWatchdogMinutes-1) -or (Get-Service $c.Service).Status -ne 'Stopped'){throw 'Stopped snapshot window exceeded or watchdog fired; backup not published'}
  }finally{Restore;$down.Stop();$stoppedByUs=$false;Log ('SERVICE_HEALTHY downtime_seconds='+[Math]::Round($down.Elapsed.TotalSeconds,1))}
  $watchdog.DeleteTask('CoreBackup-Nexus-Recover',0);$watchdog=$null
- # The unique NAS snapshot is no longer modified after final stopped sync. Inventory it after service recovery.
- $workFiles=Manifest (Join-Path $pending 'work');$homeFiles=Manifest (Join-Path $pending 'application')
- $receipt=@{Owner='nexus-direct-v1';Asset=$c.Asset;Run=$run;Date=$date;Verification='size_only';StoppedSeconds=[Math]::Round($down.Elapsed.TotalSeconds,1);Work=$workFiles;Application=$homeFiles}
+ # The archives are sealed in NAS243 .partial; record size and writer SHA256 per archive for the receipt.
+ $archives=@()
+ foreach($a in @($preseed,$application,$delta)){$archives+=@{Name=$a.Name;Bytes=$a.Bytes;Sha256=$a.Sha256;Entries=$a.Entries}}
+ $deletedFile=Join-Path $pending 'deleted-paths.json'
+ $archives+=@{Name='deleted-paths.json';Bytes=([IO.FileInfo]$deletedFile).Length;Sha256=(Get-NexusSha256 $deletedFile);Entries=0}
+ $sourceFiles=[long]($preseed.Entries+$application.Entries);$sourceBytes=[long]0
+ foreach($h in @($preseed.Snapshot,$application.Snapshot)){foreach($v in $h.Values){$sourceBytes+=[long]$v[0]}}
+ $receipt=@{Owner='nexus-direct-v1';Format='pax-tar-v2';Asset=$c.Asset;Run=$run;Date=$date;Verification='size_and_writer_sha256';StoppedSeconds=[Math]::Round($down.Elapsed.TotalSeconds,1);SourceFileCount=$sourceFiles;SourceBytes=$sourceBytes;DeltaFiles=[long]$delta.Entries;DeltaDeleted=$deleted.Count;Archives=$archives}
  [IO.File]::WriteAllText((Join-Path $pending 'backup-result.json'),$json.Serialize($receipt),$utf8)
  $final=Join-Path $day $run;[IO.Directory]::Move($pending,$final)
  [void][IO.Directory]::CreateDirectory((Join-Path $private 'receipts'))
@@ -240,20 +257,16 @@ try{
  Notice 'SUCCESS' ('NAS243 complete; service healthy; run='+$run)
  $secondaryDay=Join-Path $secondaryBase $date;[void][IO.Directory]::CreateDirectory($secondaryDay)
  $secondaryPending=Join-Path $secondaryDay ('.'+$run+'.partial');[void][IO.Directory]::CreateDirectory($secondaryPending)
- CopyTree (Join-Path $final 'work') (Join-Path $secondaryPending 'work') $false 7200
- CopyTree (Join-Path $final 'application') (Join-Path $secondaryPending 'application') $false 3600
- Verify (Join-Path $secondaryPending 'work') $workFiles;Verify (Join-Path $secondaryPending 'application') $homeFiles
- [IO.File]::Copy((Join-Path $final 'backup-result.json'),(Join-Path $secondaryPending 'backup-result.json'))
+ CopyTree $final $secondaryPending $false 7200
+ Test-NexusArchiveSizes $secondaryPending $archives
  [IO.Directory]::Move($secondaryPending,(Join-Path $secondaryDay $run))
  $tertiaryDay=Join-Path $tertiaryBase $date;[void][IO.Directory]::CreateDirectory($tertiaryDay)
  $tertiaryPending=Join-Path $tertiaryDay ('.'+$run+'.partial');[void][IO.Directory]::CreateDirectory($tertiaryPending)
- CopyTree (Join-Path $final 'work') (Join-Path $tertiaryPending 'work') $false 7200
- CopyTree (Join-Path $final 'application') (Join-Path $tertiaryPending 'application') $false 3600
- Verify (Join-Path $tertiaryPending 'work') $workFiles;Verify (Join-Path $tertiaryPending 'application') $homeFiles
- [IO.File]::Copy((Join-Path $final 'backup-result.json'),(Join-Path $tertiaryPending 'backup-result.json'))
+ CopyTree $final $tertiaryPending $false 7200
+ Test-NexusArchiveSizes $tertiaryPending $archives
  [IO.Directory]::Move($tertiaryPending,(Join-Path $tertiaryDay $run))
  $clean243=Clean $base;$clean254=Clean $secondaryBase;$clean240=Clean $tertiaryBase
- $result=@{Status='success';Run=$run;Targets=@{nas243=$true;win254=$true;nas240=$true};Verification='size_only';Seconds=[Math]::Round($timer.Elapsed.TotalSeconds,1);StoppedSeconds=$receipt.StoppedSeconds}
+ $result=@{Status='success';Run=$run;Targets=@{nas243=$true;win254=$true;nas240=$true};Verification='size_and_writer_sha256';Seconds=[Math]::Round($timer.Elapsed.TotalSeconds,1);StoppedSeconds=$receipt.StoppedSeconds}
  [IO.File]::WriteAllText((Join-Path $private 'last-result.json'),$json.Serialize($result),$utf8)
  Log ('SUCCESS '+$run);Notice 'SUMMARY' ("【Nexus备份｜全部成功】`n资产："+$c.Asset+"`n目标：243成功 / 254成功 / 240成功`n校验：仅存在/大小，未做MD5`n清理运行目录：243="+$clean243+' / 254='+$clean254+' / 240='+$clean240+"`n保留："+$c.KeepDates+"个成功日期`n服务：已恢复，HTTP健康检查通过`n批次："+$run+"`n总耗时："+[int]$timer.Elapsed.TotalSeconds+'秒；停机窗口：'+$receipt.StoppedSeconds+'秒')
 }catch{
