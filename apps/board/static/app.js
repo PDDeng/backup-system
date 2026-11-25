@@ -496,7 +496,7 @@ function renderAssets() {
   }
   for (const [text, title] of [
     ['最近副本', '各目标中最新有效/记录日期'],
-    ['恢复与人工验收', '原生技术恢复与人工业务验收独立展示'],
+    ['恢复', '仅展示原生技术恢复验证结果'],
     ['操作', '打开右侧详情抽屉']
   ]) {
     const th = node('th', text);
@@ -591,14 +591,10 @@ function renderAssets() {
     tr.append(node('td', latestCopyDate(a), 'latest'));
 
     const restoreTd = node('td');
-    const rStack = node('div', undefined, 'restore-stack');
     const rInfo = restoreBadgeInfo(a.restore);
     const rBadge = node('span', undefined, 'badge ' + rInfo.cls);
     rBadge.append(icon(rInfo.ic), rInfo.text);
-    const manual = acceptanceBadge(a);
-    const mBadge = node('span', manual.text, 'manual-pill ' + manual.kind);
-    rStack.append(rBadge, mBadge);
-    restoreTd.append(rStack);
+    restoreTd.append(rBadge);
     tr.append(restoreTd);
 
     const actTd = node('td');
@@ -656,7 +652,7 @@ function renderDrawer(asset) {
   tabStrip.replaceChildren();
   const tabs = [
     ['result', '备份结果'],
-    ['restore', '恢复与验收'],
+    ['restore', '恢复'],
     ['history', '历史记录'],
     ['logs', '执行日志']
   ];
@@ -810,73 +806,8 @@ function renderDrawerRestore(container, asset) {
   addMetaRow(rdl, '状态码', (asset.restore && asset.restore.status) || 'not_tested');
   addMetaRow(rdl, '完成时间', (asset.restore && asset.restore.finished) || '尚无完成时间');
   addMetaRow(rdl, '验证范围', (asset.restore && asset.restore.scope) || '尚无范围说明', true);
-  rCard.append(rHead, rdl, node('p', '来源：snapshot.json restore 字段（由隔离恢复观测脚本输出，不与人工验收互相覆盖）。', 'source-note'));
+  rCard.append(rHead, rdl, node('p', '来源：snapshot.json restore 字段（由隔离恢复观测脚本输出）。当前前端仅展示原生技术恢复结果。', 'source-note'));
   container.append(rCard);
-
-  // Manual acceptance card
-  const mCard = node('section', undefined, 'detail-card');
-  const mHead = node('div', undefined, 'detail-title');
-  const mH3 = node('h3');
-  mH3.append(icon('ic-user-check'), '人工业务验收（独立追加记录）');
-  const manual = acceptanceBadge(asset);
-  mHead.append(mH3, node('span', manual.text, 'badge ' + manual.kind));
-  mCard.append(mHead);
-
-  const reviews = asset.manual_acceptance || [];
-  if (!reviews.length) {
-    mCard.append(node('p', '暂无人工业务验收记录。自动技术恢复通过不代表业务验收通过。', 'muted'));
-  } else {
-    const list = node('div', undefined, 'acceptance-list');
-    for (const r of reviews.slice(0, 10)) {
-      const rec = r.record || {};
-      const entry = node('div', undefined, 'acceptance-entry');
-      const eHead = node('div', undefined, 'acceptance-entry-head');
-      eHead.append(
-        node('strong', '批次 ' + (rec.backup_run || '未知') + ' · 验收人 ' + (r.tester || '未知')),
-        node('span', rec.status === 'passed' ? '验收通过' : '验收未通过', 'badge ' + (rec.status === 'passed' ? 'good' : 'bad'))
-      );
-      entry.append(
-        eHead,
-        node('p', '测试时间：' + (rec.tested_at || '—') + ' ｜ 范围：' + (rec.scope || '—')),
-        node('p', '步骤：' + (rec.steps || '—')),
-        node('p', '实际结果：' + (rec.actual || '—')),
-        node('p', '证据位置：' + (rec.evidence || '—') + ' ｜ 未测范围：' + (rec.untested || '—'))
-      );
-      list.append(entry);
-    }
-    mCard.append(list);
-  }
-
-  const actions = node('div', undefined, 'acceptance-actions');
-  actions.append(node('small', '来源：PostgreSQL acceptance_events 追加表', 'muted'));
-  if (current && current.role === 'admin') {
-    const btn = node('button', '登记人工业务验收', 'button primary');
-    btn.type = 'button';
-    btn.onclick = () => {
-      const runs = [...new Set((asset.copies || []).filter(c => c.arrived && c.run).map(c => c.run))];
-      if (!runs.length) {
-        showToast('当前资产没有已到位的核实批次，暂不能登记人工验收');
-        return;
-      }
-      if (data && data.stale) {
-        showToast('自动证据已过期，请先刷新采集后再登记人工验收');
-        return;
-      }
-      $('acceptform').reset();
-      $('acceptasset').value = asset.id;
-      $('acceptrun').replaceChildren(...runs.map(run => {
-        const o = node('option', run);
-        o.value = run;
-        return o;
-      }));
-      $('accepttime').value = new Date().toISOString();
-      $('accepterror').textContent = '';
-      $('acceptdialog').showModal();
-    };
-    actions.append(btn);
-  }
-  mCard.append(actions);
-  container.append(mCard);
 }
 
 function renderDrawerHistory(container, asset) {
@@ -943,9 +874,9 @@ function exportCsv() {
   const cols = deriveColumns(data);
   const rows = getFilteredAssets();
   const lines = [];
-  lines.push(['数据来源', '/api/board (snapshot.json 实时投影 + PostgreSQL 人工验收)', '采样时间', data.sampled || '未采集', '证据状态', data.stale ? '已过期' : '有效'].map(csvCell).join(','));
-  lines.push(['统计口径', '副本到位/大小核对/MD5/原生恢复/人工验收分别计量；筛选条件=' + $('filter').value + '；关键字=' + ($('search').value.trim() || '无')].map(csvCell).join(','));
-  const head = ['资产ID', '资产名称', 'IP', '类型', '系统', '保护状态', ...cols.map(t => targetLabel(t, false)), '最近副本', '原生恢复', '人工业务验收', '异常说明'];
+  lines.push(['数据来源', '/api/board (snapshot.json 实时投影)', '采样时间', data.sampled || '未采集', '证据状态', data.stale ? '已过期' : '有效'].map(csvCell).join(','));
+  lines.push(['统计口径', '副本到位/大小核对/MD5/原生恢复分别计量；筛选条件=' + $('filter').value + '；关键字=' + ($('search').value.trim() || '无')].map(csvCell).join(','));
+  const head = ['资产ID', '资产名称', 'IP', '类型', '系统', '保护状态', ...cols.map(t => targetLabel(t, false)), '最近副本', '恢复', '异常说明'];
   lines.push(head.map(csvCell).join(','));
   for (const a of rows) {
     const copyTexts = cols.map(tid => {
@@ -953,14 +884,12 @@ function exportCsv() {
       if (!c) return '未配置';
       return (c.date || '无记录') + ' (' + c.note + ')';
     });
-    const manual = acceptanceBadge(a);
     lines.push([
       a.id, a.name, a.host || '', a.type || '', a.os || '',
       stateBadgeInfo(a).text,
       ...copyTexts,
       latestCopyDate(a),
       restoreBadgeInfo(a.restore).text,
-      manual.text,
       (a.issues || []).join('；')
     ].map(csvCell).join(','));
   }
