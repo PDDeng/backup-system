@@ -1,0 +1,93 @@
+Windows PowerShell 5.1; 2026-11-25 Asia/Shanghai
+Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/svn/test-svn.ps1
+Exit code: 0
+No production or network calls; privileged ACL application mocked; ACL policy inspected.
+PS 2.0 runtime not available on this workstation.
+
+PASS syntax install-svn-task.ps1
+PASS syntax json-compat.ps1
+PASS syntax svn-backup.ps1
+PASS syntax svn-core.ps1
+2026-11-25T23:45:30 START 20261125T234530-5c7a85 mode=check
+2026-11-25T23:45:30 CHECK_OK repositories=2; no backup or cleanup
+PASS CheckOnly writes diagnostic result
+PASS CheckOnly never invokes hotcopy
+PASS CheckOnly leaves no backup/probe files
+PASS local daily log exists
+2026-11-25T23:45:31 START 20261125T234530-768e3d mode=check
+2026-11-25T23:45:31 FAILURE SMB connection error 1219; existing sessions preserved
+PASS SMB preflight failure writes local last-result
+PASS SMB failure does not create backup directory
+2026-11-25T23:45:31 START 20261125T234531-f7ab9a mode=backup
+2026-11-25T23:45:31 HOTCOPY_START repoA
+2026-11-25T23:45:31 REPOSITORY_OK repoA
+2026-11-25T23:45:31 HOTCOPY_START repoB
+2026-11-25T23:45:31 REPOSITORY_OK repoB
+2026-11-25T23:45:32 PUBLISHED 20261125T234531-f7ab9a status=success
+PASS all repositories copied verified and recorded
+PASS formal receipt validates file and directory manifest
+PASS root config whitelist copied
+PASS successful run atomically published
+PASS exclusive lock refuses concurrent run
+PASS lock loser preserves owner result
+2026-11-25T23:45:32 START 20261125T234532-c362ee mode=backup
+2026-11-25T23:45:33 HOTCOPY_START repoA
+2026-11-25T23:45:33 FAILURE mock svnadmin verify failed
+PASS verify failure has explicit last-result
+PASS failed partial retained not published
+PASS source data preserved on failure
+2026-11-25T23:45:33 START 20261125T234533-a13b84 mode=backup
+2026-11-25T23:45:33 HOTCOPY_START repoA
+2026-11-25T23:45:33 REPOSITORY_OK repoA
+2026-11-25T23:45:34 PUBLISHED 20261125T234533-a13b84 status=success
+PASS SmallTest selects one repo
+PASS SmallTest excluded from full-cycle cleanup
+PASS 16 complete dates retain newest15
+PASS whitelisted oldest complete date cleaned
+PASS 15 or fewer cycles never clean
+PASS retention accepts configurable seven complete cycles
+PASS unknown payload blocks receipt
+PASS unknown date preserved
+PASS legacy unowned receipt preserved
+PASS partial sibling protects whole date
+PASS manifest traversal rejected
+PASS unknown empty directory rejected
+PASS ReparsePoint rejected before traversal
+PASS linked payload blocks cleanup
+PASS ReadOnly clearing rejects ReparsePoint before attribute mutation
+PASS junction target untouched
+PASS credential ACL policy SYSTEM and Administrators only
+PASS save requests private credential ACL
+PASS credential stored without plaintext
+PASS machine DPAPI roundtrip
+PASS SMB connector uses decrypted credential through native adapter stub
+PASS WNet receives exact share without trailing slash
+PASS SMB1219 explicit failure preserves existing sessions
+PASS credential replacement keeps encrypted prior version
+PASS installer PlanOnly exits without task registration
+PASS SYSTEM background daily01 disabled by default
+PASS null repositories and files cannot validate receipt-only directory
+PASS empty or null manifest arrays fail closed
+PASS empty or null manifest arrays fail closed
+PASS empty or null manifest arrays fail closed
+PASS null directory manifest rejected
+PASS attribute clearing removes ReadOnly only
+PASS ReadOnly FSFS files and receipt cleaned successfully
+PASS ownership receipt deleted after all payload files and directories
+PASS mid-cleanup failure retains ownership receipt
+PASS partially cleaned run never validates as complete
+2026-11-25T23:46:03 START 20261125T234603-7de7ce mode=backup
+2026-11-25T23:46:03 HOTCOPY_START repoA
+2026-11-25T23:46:03 REPOSITORY_OK repoA
+2026-11-25T23:46:03 HOTCOPY_START repoB
+2026-11-25T23:46:03 REPOSITORY_OK repoB
+2026-11-25T23:46:03 CLEANUP_FAILED injected denied detail
+2026-11-25T23:46:04 PUBLISHED 20261125T234603-7de7ce status=cleanup_failed
+PASS cleanup_failed preserves exception detail and published backup
+PASS cleanup exception detail persisted in daily log
+PASS run and date share one captured timestamp at midnight boundary
+RESULT passed=58 failed=0; LOCAL ONLY; sandbox=<local temporary fixture directory; redacted>
+
+Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/svn/test-csc20.ps1
+Exit code: 0
+PASS csc20 compile helpers=2 rc=0; no production calls
