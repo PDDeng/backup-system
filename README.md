@@ -23,3 +23,5 @@
 凭证、数据库、运行日志、备份文件、离线依赖包没有纳入仓库。部署凭证在目标机器本地配置，参照各模块说明。
 
 协作前先阅读 [AGENTS.md](AGENTS.md) 和 [协作交接](docs/HANDOFF.md)。
+
+多 AI 团队配置及主副负责人接管见 [AI 协作说明](docs/AI协作说明.md) 与 [配置模板](config/ai-team.example.json)。

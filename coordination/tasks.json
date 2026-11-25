@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "tasks": [],
+  "task_template": {
+    "id": "TASK-001",
+    "title": "填写任务名称",
+    "owner": "填写 agents 中的 id",
+    "reviewer": "填写与作者不同的已启用 agent id",
+    "status": "todo",
+    "depends_on": [],
+    "allowed_paths": [],
+    "branch": "ai/worker-01/TASK-001",
+    "acceptance_criteria": [],
+    "test_commands": [],
+    "evidence_paths": [],
+    "commit": null,
+    "production_change": false,
+    "authorization_reference": null,
+    "rollback": null,
+    "blockers": [],
+    "updated_at": null
+  }
+}

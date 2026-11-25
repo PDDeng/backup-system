@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "project": "backup-system",
+  "coordination": {
+    "mode": "manual",
+    "repository": "https://github.com/PDDeng/backup-system",
+    "base_branch": "main",
+    "human_owner": "填写项目负责人",
+    "human_contact": "填写联系渠道，不填密码或令牌",
+    "task_file": "coordination/tasks.json",
+    "handoff_file": "coordination/HANDOFF.md",
+    "state_file": "coordination/state.json",
+    "max_parallel_workers": 3,
+    "heartbeat_minutes": 15,
+    "stale_after_minutes": 45,
+    "automatic_takeover_enabled": false,
+    "scheduler_command": null
+  },
+  "leadership": {
+    "primary": "codex-lead",
+    "deputy": "gemini-deputy",
+    "initial_active_leader": "codex-lead",
+    "takeover_reasons": ["explicit_handoff", "quota_exhausted", "unavailable_confirmed_by_human"],
+    "timeout_alone_allows_takeover": false,
+    "return_policy": "explicit_handoff_after_current_changes_are_recorded",
+    "single_production_writer": true
+  },
+  "agents": [
+    {
+      "id": "codex-lead",
+      "name": "Codex",
+      "enabled": true,
+      "role": "primary",
+      "tool": "Codex",
+      "model": "填写当前实际模型",
+      "contact_or_session": "填写聊天或会话位置",
+      "workspace": "填写独立工作目录",
+      "branch_prefix": "ai/codex/",
+      "skills": ["architecture", "integration", "review"],
+      "allowed_paths": ["*"],
+      "max_concurrent_tasks": 1,
+      "adapter": {"type": "manual", "command": null, "credential_env": null}
+    },
+    {
+      "id": "gemini-deputy",
+      "name": "Gemini",
+      "enabled": true,
+      "role": "deputy",
+      "tool": "Antigravity",
+      "model": "填写 Gemini 实际模型",
+      "contact_or_session": "填写聊天或会话位置",
+      "workspace": "填写独立工作目录",
+      "branch_prefix": "ai/gemini/",
+      "skills": ["planning", "frontend", "review"],
+      "allowed_paths": ["*"],
+      "max_concurrent_tasks": 1,
+      "adapter": {"type": "manual", "command": null, "credential_env": null}
+    },
+    {
+      "id": "worker-01",
+      "name": "填写员工名称",
+      "enabled": false,
+      "role": "worker",
+      "tool": "OpenCode",
+      "model": "填写模型",
+      "contact_or_session": "填写会话位置",
+      "workspace": "填写独立工作目录",
+      "branch_prefix": "ai/worker-01/",
+      "skills": ["tests", "backend"],
+      "allowed_paths": ["platform/", "tests/"],
+      "max_concurrent_tasks": 1,
+      "adapter": {"type": "manual", "command": null, "credential_env": null}
+    }
+  ],
+  "quality": {
+    "same_gates_for_primary_and_deputy": true,
+    "require_task_acceptance_criteria": true,
+    "require_diff_review": true,
+    "require_test_evidence": true,
+    "require_independent_reviewer": true,
+    "author_may_approve_own_change": false,
+    "if_no_reviewer": "hold_merge_and_deployment",
+    "require_rollback_for_production": true,
+    "require_current_production_version_check": true,
+    "test_failure_policy": "block_merge",
+    "production_change_policy": "existing_authorization_scope_only_otherwise_human_approval",
+    "prohibited": ["delete_backup_data", "commit_secrets", "fabricate_success", "bypass_authentication", "restart_business_without_authorization"]
+  }
+}

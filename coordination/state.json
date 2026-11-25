@@ -1,0 +1,13 @@
+{
+  "active_leader": "codex-lead",
+  "epoch": 1,
+  "status": "manual_coordination",
+  "last_heartbeat_at": null,
+  "handoff_from": null,
+  "handoff_to": null,
+  "handoff_reason": null,
+  "handoff_commit": null,
+  "acknowledged_by": null,
+  "production_writer": null,
+  "note": "声明性初始状态，未连接任何外部 AI 调度器；不构成生产变更锁。"
+}

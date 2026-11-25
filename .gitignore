@@ -26,3 +26,4 @@ id_ed25519*
 *.dump
 wheelhouse/
 node_modules/
+config/ai-team.local.json
