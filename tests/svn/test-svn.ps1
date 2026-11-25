@@ -24,7 +24,7 @@ $adapters=@{
   [void]$script:calls.Add($arguments[0])
   if($arguments[0] -eq 'hotcopy'){
    [void][IO.Directory]::CreateDirectory($arguments[2]);Copy-Item -Path (Join-Path $arguments[1] '*') -Destination $arguments[2] -Recurse
-  }elseif($arguments[0] -eq 'verify'){if($script:failVerify){throw 'mock svnadmin verify failed'}}elseif($arguments[0] -eq 'uuid'){return '12345678-1234-1234-1234-123456789abc'}elseif($arguments[0] -eq 'youngest'){return '7'}else{throw 'Unexpected mock invocation'}
+  }elseif($arguments[0] -eq 'verify'){if($arguments -notcontains '-q'){throw 'verify must be quiet'};if($script:failVerify){throw 'mock svnadmin verify failed'}}elseif($arguments[0] -eq 'uuid'){return '12345678-1234-1234-1234-123456789abc'}elseif($arguments[0] -eq 'youngest'){return '7'}else{throw 'Unexpected mock invocation'}
  }
 }
 function New-ManagedDate($base,[datetime]$date,[string]$asset){
@@ -87,6 +87,7 @@ try{
  $rejected=$false;try{$null=Get-SvnTree $bad}catch{$rejected=$true}
  Assert $rejected 'ReparsePoint rejected before traversal'
  Assert (-not (Test-SvnReceipt $bad 'svn-unit' ((Get-Date).Date.AddDays(-24).ToString('yyyy-MM-dd')))) 'linked payload blocks cleanup'
+ $rejected=$false;try{Clear-SvnManagedReadOnly $junction}catch{$rejected=$true};Assert $rejected 'ReadOnly clearing rejects ReparsePoint before attribute mutation'
  [IO.Directory]::Delete($junction,$false)
  Assert ([IO.File]::ReadAllText((Join-Path $outside 'keep.txt')) -eq 'keep') 'junction target untouched'
  # LocalMachine DPAPI encrypt/decrypt roundtrip without WNet/native connect.
@@ -100,10 +101,11 @@ try{
  $bytes=[Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($raw),$null,[Security.Cryptography.DataProtectionScope]::LocalMachine)
  try{$decoded=$json.DeserializeObject([Text.Encoding]::UTF8.GetString($bytes));Assert ($decoded.User -eq 'unit-user' -and $decoded.Password -eq 'unit-only-not-a-secret') 'machine DPAPI roundtrip'}finally{[Array]::Clear($bytes,0,$bytes.Length)}
  Add-Type -TypeDefinition @'
-public class SvnNative {public static int Code=0;public static int Connect(string target,string user,string password){return Code;}}
+public class SvnNative {public static int Code=0;public static string Target;public static int Connect(string target,string user,string password){Target=target;return Code;}}
 '@
- Connect-SvnSmb '\\unit-invalid\share' $credPath
+ Connect-SvnSmb '\\unit-invalid\share\' $credPath
  Assert $true 'SMB connector uses decrypted credential through native adapter stub'
+ Assert ([SvnNative]::Target -eq '\\unit-invalid\share') 'WNet receives exact share without trailing slash'
  [SvnNative]::Code=1219;$conflict=$false;try{Connect-SvnSmb '\\unit-invalid\share' $credPath}catch{$conflict=$_.Exception.Message -like '*1219*preserved*'}
  Assert $conflict 'SMB1219 explicit failure preserves existing sessions'
  $again=Join-Path $sandbox 'second.dpapi';Save-SvnCredential $again $credential;Save-SvnCredential $again $credential
@@ -111,6 +113,39 @@ public class SvnNative {public static int Code=0;public static int Connect(strin
  $plan=& (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File (Join-Path $component 'install-svn-task.ps1') -PlanOnly
  Assert ($LASTEXITCODE -eq 0) 'installer PlanOnly exits without task registration'
  $p=$json.DeserializeObject(($plan -join ''));Assert ($p.User -eq 'SYSTEM' -and $p.LogonType -eq 5 -and $p.RunLevel -eq 1 -and -not $p.Enabled -and -not $p.StartsBackup) 'SYSTEM background daily01 disabled by default'
+ # Receipt-only fixture reproduces the prior @($null).Count==1 bypass.
+ $nullRoot=Join-Path $sandbox 'null-arrays';$nullRun='20260101T010000-abcdef';$nullDir=Join-Path $nullRoot $nullRun;[void][IO.Directory]::CreateDirectory($nullDir)
+ $r=@{Owner='svn-hotcopy-v2';Asset='svn-unit';Run=$nullRun;Date='2026-01-01';Status='hotcopy_verified';SmallTest=$false;Repositories=$null;Files=$null;Directories=@()}
+ [IO.File]::WriteAllText((Join-Path $nullDir 'hotcopy-result.json'),$json.Serialize($r))
+ Assert (-not (Test-SvnReceipt $nullDir 'svn-unit' '2026-01-01')) 'null repositories and files cannot validate receipt-only directory'
+ foreach($values in @(@{Repositories=@();Files=@()},@{Repositories=$null;Files=@()},@{Repositories=@();Files=$null})){
+  $r.Repositories=$values.Repositories;$r.Files=$values.Files;[IO.File]::WriteAllText((Join-Path $nullDir 'hotcopy-result.json'),$json.Serialize($r))
+  Assert (-not (Test-SvnReceipt $nullDir 'svn-unit' '2026-01-01')) 'empty or null manifest arrays fail closed'
+ }
+ $nullDates=Join-Path $sandbox 'null-date';$invalid=New-ManagedDate $nullDates ((Get-Date).Date.AddDays(-30)) 'svn-unit';$r=$json.DeserializeObject([IO.File]::ReadAllText((Join-Path $invalid 'hotcopy-result.json')));$r.Directories=$null;[IO.File]::WriteAllText((Join-Path $invalid 'hotcopy-result.json'),$json.Serialize($r))
+ Assert (-not (Test-SvnReceipt $invalid 'svn-unit' $r.Date)) 'null directory manifest rejected'
+ # A real read-only FSFS fixture: preserve other flags, remove receipt last.
+ $readOnlyBase=Join-Path $sandbox 'readonly';$older=New-ManagedDate $readOnlyBase ((Get-Date).Date.AddDays(-3)) 'svn-unit';$newer=New-ManagedDate $readOnlyBase ((Get-Date).Date.AddDays(-2)) 'svn-unit'
+ $file=Join-Path $older 'repoA\format';[IO.File]::SetAttributes($file,([IO.FileAttributes]::ReadOnly -bor [IO.FileAttributes]::Hidden));Clear-SvnManagedReadOnly $file
+ Assert (([IO.File]::GetAttributes($file) -band [IO.FileAttributes]::Hidden) -and -not ([IO.File]::GetAttributes($file) -band [IO.FileAttributes]::ReadOnly)) 'attribute clearing removes ReadOnly only'
+ foreach($f in (Get-SvnTree $older).Files){$p=Join-Path $older $f.Name;[IO.File]::SetAttributes($p,([IO.File]::GetAttributes($p) -bor [IO.FileAttributes]::ReadOnly))}
+ $script:removeImpl=(Get-Item function:Remove-SvnManagedFile).ScriptBlock;$script:deleteOrder=New-Object Collections.ArrayList
+ function Remove-SvnManagedFile([string]$Path){[void]$script:deleteOrder.Add([IO.Path]::GetFileName($Path));if([IO.Path]::GetFileName($Path) -eq 'hotcopy-result.json'){if([IO.Directory]::GetDirectories([IO.Path]::GetDirectoryName($Path)).Length -ne 0){throw 'Receipt removed before payload directories'}};& $script:removeImpl $Path}
+ try{$removed=Clean $readOnlyBase 'svn-unit' 1}finally{Set-Item function:Remove-SvnManagedFile -Value $script:removeImpl}
+ Assert ($removed -eq 1 -and -not [IO.Directory]::Exists($older)) 'ReadOnly FSFS files and receipt cleaned successfully'
+ Assert ($script:deleteOrder[$script:deleteOrder.Count-1] -eq 'hotcopy-result.json') 'ownership receipt deleted after all payload files and directories'
+ # Inject a mid-payload failure; receipt must still identify the retained run.
+ $failBase=Join-Path $sandbox 'cleanup-fault';$older=New-ManagedDate $failBase ((Get-Date).Date.AddDays(-3)) 'svn-unit';$newer=New-ManagedDate $failBase ((Get-Date).Date.AddDays(-2)) 'svn-unit'
+ $script:deletes=0;function Remove-SvnManagedFile([string]$Path){$script:deletes++;if($script:deletes -eq 2){throw 'injected deletion denied'};& $script:removeImpl $Path}
+ $failed=$false;try{$null=Clean $failBase 'svn-unit' 1}catch{$failed=$_.Exception.Message -like '*injected deletion denied*'}finally{Set-Item function:Remove-SvnManagedFile -Value $script:removeImpl}
+ Assert ($failed -and [IO.File]::Exists((Join-Path $older 'hotcopy-result.json'))) 'mid-cleanup failure retains ownership receipt'
+ Assert (-not (Test-SvnReceipt $older 'svn-unit' ((Get-Date).Date.AddDays(-3).ToString('yyyy-MM-dd')))) 'partially cleaned run never validates as complete'
+ $c=New-Config 'cleanup-result';$script:cleanImpl=(Get-Item function:Clean).ScriptBlock;function Clean {throw 'injected denied detail'}
+ try{$rc=Invoke-SvnRun $c $adapters $false $false}finally{Set-Item function:Clean -Value $script:cleanImpl}
+ $r=Read-Result $c;Assert ($rc -eq 1 -and $r.Status -eq 'cleanup_failed' -and $r.Error -like '*injected denied detail*' -and [IO.Directory]::Exists($r.Published)) 'cleanup_failed preserves exception detail and published backup'
+ $logText=[IO.File]::ReadAllText((Join-Path $c.PrivateRoot ('logs\'+(Get-Date -Format yyyy-MM-dd)+'.log')));Assert ($logText -like '*CLEANUP_FAILED injected denied detail*') 'cleanup exception detail persisted in daily log'
+ $identity=New-SvnRunIdentity ([datetime]::ParseExact('2026-11-25 23:59:59','yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture))
+ Assert ($identity.Date -eq '2026-11-25' -and $identity.Run -like '20261125T235959-*') 'run and date share one captured timestamp at midnight boundary'
  [Console]::WriteLine('RESULT passed='+$script:passed+' failed=0; LOCAL ONLY; sandbox='+$sandbox)
 }catch{[Console]::WriteLine($_.ToString());[Console]::WriteLine($_.InvocationInfo.PositionMessage);exit 1}
 # Preserve test fixtures for inspection; no recursive deletion needed.

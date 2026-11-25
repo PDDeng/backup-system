@@ -33,7 +33,7 @@ function Test-SvnReceipt([string]$Directory,[string]$Asset,[string]$Date){
   if(-not [IO.File]::Exists($receipt)){return $false}
   $r=$script:json.DeserializeObject([IO.File]::ReadAllText($receipt,[Text.Encoding]::UTF8))
   if($r.Owner -ne 'svn-hotcopy-v2' -or $r.Asset -ne $Asset -or $r.Run -ne $run -or $r.Date -ne $Date -or $r.Status -ne 'hotcopy_verified' -or $r.SmallTest -isnot [bool] -or $r.SmallTest){return $false}
-  if(@($r.Repositories).Count -eq 0 -or @($r.Files).Count -eq 0){return $false}
+  if($null -eq $r.Repositories -or $r.Repositories -isnot [Array] -or @($r.Repositories).Count -eq 0 -or $null -eq $r.Files -or $r.Files -isnot [Array] -or @($r.Files).Count -eq 0 -or $null -eq $r.Directories -or $r.Directories -isnot [Array]){return $false}
   $repos=@{};foreach($repo in $r.Repositories){if(-not (Test-SvnSegment $repo.Repository) -or $repo.Repository -eq '_root-config' -or $repos.ContainsKey($repo.Repository) -or $repo.UUID -notmatch '^[0-9a-fA-F-]{36}$' -or [string]$repo.Revision -notmatch '^\d+$'){return $false};$repos[$repo.Repository]=$true
    if(-not [IO.File]::Exists((Join-Path $Directory ($repo.Repository+'\format'))) -or -not [IO.Directory]::Exists((Join-Path $Directory ($repo.Repository+'\db')))){return $false}
   }
@@ -66,16 +66,26 @@ function Get-SvnCleanupPlan([string]$Base,[string]$Asset,[int]$Keep){
  $ordered=@($valid | Sort-Object Name -Descending);if($ordered.Count -le $Keep){return @()}
  return @($ordered | Select-Object -Skip $Keep | ForEach-Object {$_.FullName})
 }
+function Clear-SvnManagedReadOnly([string]$Path){
+ # Validate again immediately before changing attributes; never follow junctions.
+ $null=Assert-SvnPlainPath $Path;$attributes=[IO.File]::GetAttributes($Path)
+ if($attributes -band [IO.FileAttributes]::ReparsePoint){throw 'ReparsePoint rejected before attribute change'}
+ if($attributes -band [IO.FileAttributes]::ReadOnly){[IO.File]::SetAttributes($Path,($attributes -band (-bnot [IO.FileAttributes]::ReadOnly)))}
+}
+function Remove-SvnManagedFile([string]$Path){Clear-SvnManagedReadOnly $Path;[IO.File]::Delete($Path)}
 function Clean([string]$Base,[string]$Asset,[int]$Keep){
  $removed=0
  foreach($day in @(Get-SvnCleanupPlan $Base $Asset $Keep)){
   $null=Assert-SvnPlainPath $day;$runs=@(Get-ChildItem -LiteralPath $day -Force);$date=[IO.Path]::GetFileName($day)
   foreach($run in $runs){if(-not $run.PSIsContainer -or -not (Test-SvnReceipt $run.FullName $Asset $date)){throw 'Cleanup revalidation failed; preserved'}}
   foreach($run in $runs){$tree=Get-SvnTree $run.FullName
-   foreach($file in $tree.Files){$p=Join-Path $run.FullName $file.Name;$null=Assert-SvnPlainPath $p;[IO.File]::Delete($p)}
-   foreach($dir in @($tree.Directories | Sort-Object Length -Descending)){$null=Assert-SvnPlainPath $dir;[IO.Directory]::Delete($dir,$false)}
+   # Keep ownership evidence until every payload file and directory is removed.
+   foreach($file in $tree.Files){if($file.Name -eq 'hotcopy-result.json'){continue};Remove-SvnManagedFile (Join-Path $run.FullName $file.Name)}
+   foreach($dir in @($tree.Directories | Sort-Object Length -Descending)){Clear-SvnManagedReadOnly $dir;[IO.Directory]::Delete($dir,$false)}
+   Clear-SvnManagedReadOnly $run.FullName
+   Remove-SvnManagedFile (Join-Path $run.FullName 'hotcopy-result.json')
    [IO.Directory]::Delete($run.FullName,$false)
-  };[IO.Directory]::Delete($day,$false);$removed++
+  };Clear-SvnManagedReadOnly $day;[IO.Directory]::Delete($day,$false);$removed++
  };return $removed
 }
 function New-SvnCredentialAcl {
@@ -97,11 +107,12 @@ function Save-SvnCredential([string]$Path,$Credential){
 function Connect-SvnSmb([string]$Target,[string]$CredentialPath){
  Add-Type -AssemblyName System.Security;$null=Assert-SvnPlainPath $CredentialPath
  $plain=[Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String([IO.File]::ReadAllText($CredentialPath)),$null,[Security.Cryptography.DataProtectionScope]::LocalMachine)
- try{$cred=$script:json.DeserializeObject([Text.Encoding]::UTF8.GetString($plain));$rc=[SvnNative]::Connect($Target,$cred.User,$cred.Password);if($rc -ne 0){throw ('SMB connection error '+$rc+'; existing sessions preserved')}}finally{[Array]::Clear($plain,0,$plain.Length);$cred=$null}
+ try{$cred=$script:json.DeserializeObject([Text.Encoding]::UTF8.GetString($plain));$rc=[SvnNative]::Connect($Target.TrimEnd('\'),$cred.User,$cred.Password);if($rc -ne 0){throw ('SMB connection error '+$rc+'; existing sessions preserved')}}finally{[Array]::Clear($plain,0,$plain.Length);$cred=$null}
 }
+function New-SvnRunIdentity([datetime]$Started){return @{Run=($Started.ToString('yyyyMMddTHHmmss')+'-'+[guid]::NewGuid().ToString('N').Substring(0,6));Date=$Started.ToString('yyyy-MM-dd')}}
 function Invoke-SvnRun($Config,$Adapters,[bool]$CheckOnly,[bool]$SmallTest){
  $timer=[Diagnostics.Stopwatch]::StartNew();$lock=$null;$pending=$null;$published=$null;$results=@();$exitCode=1
- $run=(Get-Date -Format yyyyMMddTHHmmss)+'-'+[guid]::NewGuid().ToString('N').Substring(0,6);$date=Get-Date -Format yyyy-MM-dd
+ $started=Get-Date;$identity=New-SvnRunIdentity $started;$run=$identity.Run;$date=$identity.Date
  $record=@{Status='failed';Run=$run;Target=$Config.TargetRoot;Asset=$Config.Asset;Date=$date;Seconds=0;Repositories=@();Error=$null;SmallTest=$SmallTest;Mode=$(if($CheckOnly){'check'}else{'backup'});Published=$null;Cleanup=0}
  try{
   $null=Assert-SvnPlainPath $Config.PrivateRoot;[void][IO.Directory]::CreateDirectory($Config.PrivateRoot)
@@ -124,7 +135,7 @@ function Invoke-SvnRun($Config,$Adapters,[bool]$CheckOnly,[bool]$SmallTest){
     Write-SvnLog $Config.PrivateRoot ('HOTCOPY_START '+$repo.Name)
     $null=& $Adapters.Tool 'svnadmin' @('hotcopy',$repo.FullName,$dest)
     $null=Assert-SvnPlainPath $dest;$null=Get-SvnTree $dest
-    $null=& $Adapters.Tool 'svnadmin' @('verify',$dest)
+    $null=& $Adapters.Tool 'svnadmin' @('verify',$dest,'-q')
     $uuid=((& $Adapters.Tool 'svnlook' @('uuid',$dest)) -join '').Trim();$revision=((& $Adapters.Tool 'svnlook' @('youngest',$dest)) -join '').Trim()
     if($uuid -notmatch '^[0-9a-fA-F-]{36}$' -or $revision -notmatch '^\d+$'){throw 'Invalid copied UUID/revision'}
     $results+=,@{Repository=$repo.Name;UUID=$uuid;Revision=$revision;Seconds=[Math]::Round($tick.Elapsed.TotalSeconds,1)}
@@ -136,7 +147,7 @@ function Invoke-SvnRun($Config,$Adapters,[bool]$CheckOnly,[bool]$SmallTest){
    Write-SvnJson (Join-Path $pending 'hotcopy-result.json') $receipt
    $final=Join-Path $day $run;[IO.Directory]::Move($pending,$final);$published=$final;$record.Published=$final
    $record.Status='success';$exitCode=0
-   if(-not $SmallTest -and -not $Config.SkipCleanup){try{$record.Cleanup=Clean $base $Config.Asset $Config.KeepCycles}catch{$record.Status='cleanup_failed';$record.Error='Backup published; cleanup failed safely';$exitCode=1}}
+   if(-not $SmallTest -and -not $Config.SkipCleanup){try{$record.Cleanup=Clean $base $Config.Asset $Config.KeepCycles}catch{$record.Status='cleanup_failed';$record.Error='Backup published; cleanup failed safely: '+$_.Exception.Message;Write-SvnLog $Config.PrivateRoot ('CLEANUP_FAILED '+$_.Exception.Message);$exitCode=1}}
    Write-SvnLog $Config.PrivateRoot ('PUBLISHED '+$run+' status='+$record.Status)
   }
  }catch{$record.Error=$_.Exception.Message;Write-SvnLog $Config.PrivateRoot ('FAILURE '+$record.Error)}

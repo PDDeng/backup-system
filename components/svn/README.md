@@ -32,6 +32,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-svn-task.ps1
 
 Clean仅接受本版本 Owner=svn-hotcopy-v2、Asset/Date/Run匹配、Status=hotcopy_verified、SmallTest=false且文件名/大小清单完全一致的目录。拒绝ReparsePoint、路径穿越、未知文件及未知空目录。一个日期含partial/未知内容就整日跳过；旧版无Owner回执保留，不自动纳管删除。
 
+Repositories、Files 必须是非 null、非空数组；Directories 必须是非 null 数组。清理时复核无链接后仅剥离 ReadOnly 属性，保留其他属性；先删除清单负载和负载目录，最后删除 hotcopy-result.json。中途失败保留回执用于定位，但缺失负载的残留批次不再视为完整副本。cleanup_failed 在日志与结果中保留原异常明细。
+
 `-SkipCleanup` 可以禁用本轮清理。安装时同名参数写入每日任务启动器。清理不访问源仓库，不用递归删除；仅删除经过校验的清单文件与空目录。共享ACL须限制非管理员并发修改，基于路径的SMB校验不能彻底消除恶意并发替换的竞态。
 
 ## 测试
