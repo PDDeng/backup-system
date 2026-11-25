@@ -1,6 +1,72 @@
 {
   "schema_version": 1,
-  "tasks": [],
+  "tasks": [
+    {
+      "id": "UI-01",
+      "title": "按 HTML 原型重构展示页样式并清楚标明每项数据来源与统计口径",
+      "owner": "gemini-deputy",
+      "reviewer": "opencode-worker",
+      "status": "in_review",
+      "depends_on": [],
+      "allowed_paths": [
+        "apps/board/static/",
+        "coordination/"
+      ],
+      "branch": "ai/gemini/UI-01",
+      "acceptance_criteria": [
+        "展示页视觉与交互布局参照 prototype/研发资料备份结果查询报告.html 与定稿截图落地浅蓝白底驾驶舱与右侧详情抽屉",
+        "完整保留既有登录、强制改密、账号管理、人工业务验收登记、30秒自动刷新、CSRF 与严格 CSP（无内联样式与脚本、无外部CDN）",
+        "在首页指标卡、矩阵页脚、存储/异常卡片、详情抽屉及独立口径说明区清楚标明每项数据的来源与统计口径",
+        "副本到位、大小核对、MD5复核、原生恢复验证与人工业务验收五项严格独立展示，互不覆盖",
+        "当日执行概要、近7天历史趋势和执行日志接口明确标示暂未接入，不用静态示例数据冒充生产结果",
+        "覆盖管理员与只读视角、空数据、过期数据、待MD5与异常场景验证，1920x1080/1366x768/390x844 无整页横向溢出且控制台零报错"
+      ],
+      "test_commands": [
+        "node apps/board/test_acceptance_view.js",
+        "python -m unittest discover -s apps/board -p \"test_model.py\"",
+        "python -m unittest discover -s apps/board -p \"test_acceptance.py\"",
+        "python -m unittest discover -s apps/board -p \"test_content_audit.py\""
+      ],
+      "evidence_paths": [],
+      "commit": null,
+      "production_change": false,
+      "authorization_reference": "人类负责人于 2026-11-25 授权仅改造展示页样式与口径标注，暂不改生产备份任务，暂不新增历史库与日志查询接口",
+      "rollback": "git revert <UI-01 commit> 或在未合并前直接丢弃分支 ai/gemini/UI-01；本分支不触发生产部署",
+      "blockers": [
+        "Codex 休息中，需由 opencode-worker 或人类负责人完成独立审核后再合并至 main"
+      ],
+      "updated_at": "2026-11-25T18:55:00+08:00"
+    },
+    {
+      "id": "DATA-01",
+      "title": "持久化每日快照、历史趋势与脱敏执行日志查询接口（暂缓，待 UI-01 验收后启动）",
+      "owner": "opencode-worker",
+      "reviewer": "gemini-deputy",
+      "status": "todo",
+      "depends_on": [
+        "UI-01"
+      ],
+      "allowed_paths": [
+        "platform/",
+        "tests/"
+      ],
+      "branch": "ai/opencode/DATA-01",
+      "acceptance_criteria": [
+        "按接口契约输出每日快照、近7天/自定义区间统计及脱敏执行日志，禁止以当前快照伪造历史数据",
+        "补充单元测试覆盖空历史、部分成功、采集失败和日期倒置等边界条件"
+      ],
+      "test_commands": [],
+      "evidence_paths": [],
+      "commit": null,
+      "production_change": false,
+      "authorization_reference": "待人类负责人放行后再进入实现阶段",
+      "rollback": "独立分支隔离，未合入前可直接回退",
+      "blockers": [
+        "人类负责人明确指示本阶段先做 UI-01 样式与口径，历史库与日志查询接口暂不做"
+      ],
+      "updated_at": "2026-11-25T18:55:00+08:00"
+    }
+  ],
   "task_template": {
     "id": "TASK-001",
     "title": "填写任务名称",
