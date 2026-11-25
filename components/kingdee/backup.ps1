@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 $c=& (Join-Path $root 'config.ps1')
 . (Join-Path $root 'json-compat.ps1')
+. (Join-Path $root 'select-day.ps1')
 $credPath=Join-Path $root 'nas-credential.xml'
 if($SetupCredentials){
  $credential=Get-Credential
@@ -46,10 +47,11 @@ try{
  if([int]$c.KeepCycles -lt 1){throw 'KeepCycles must be >= 1'}
  if($c.Asset -notmatch '^[\p{L}\p{N}_.-]+$' -or $c.Asset -match '^\.+$|\.$'){throw 'Invalid asset name'}
  $all=@(Snapshot);if(!$all.Count){throw 'No dated ADF backup files found'}
- $day=$all | ForEach-Object { [string]$_.Day } | Sort-Object -Descending | Select-Object -First 1
- if([datetime]$day -gt (Get-Date).Date){throw 'Future backup date rejected'}
- $selected=@($all | Where-Object {$_.Day -eq $day})
- foreach($x in $selected){if($x.File.Length -le 0 -or $x.File.LastWriteTime -gt (Get-Date).AddMinutes(-[int]$c.MinimumAgeMinutes)){throw 'Latest dated backup is empty or too recent; retry after backup finishes'};if($x.File.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Source linked file rejected'}}
+ $pick=Select-BackupDay $all (Get-Date).Date ([int]$c.MinimumAgeMinutes) (Get-Date)
+ if(!$pick){throw 'No complete stable dated ADF set found; future, empty or too-recent sets skipped'}
+ $day=$pick.Day;$selected=@($pick.Selected)
+ foreach($s in $pick.Skipped){Log ('SKIP '+$s)}
+ foreach($x in $selected){if($x.File.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Source linked file rejected'}}
  Log ('Selected '+$day+' files='+$selected.Count+'; stability check')
  Start-Sleep -Seconds ([int]$c.StableSeconds)
  $again=@(Snapshot | Where-Object {$_.Day -eq $day})
