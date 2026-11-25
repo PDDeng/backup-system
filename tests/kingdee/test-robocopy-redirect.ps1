@@ -26,6 +26,19 @@ try {
     if ($txt -notmatch 'Add-Content -LiteralPath \$log -Value \$line -Encoding UTF8;try\{Write-Host \$line\}catch\{\}') {
         throw 'Expected Log() to write $log first and guard Write-Host'
     }
+    if ($txt -match 'Rename-Item\s+-LiteralPath') {
+        throw 'Rename-Item -LiteralPath is unsupported in PowerShell 2.0; use [IO.Directory]::Move'
+    }
+    if ($txt -notmatch '\[IO\.Directory\]::Move\(\$partial,\$final\)') {
+        throw 'Expected atomic [IO.Directory]::Move($partial,$final) publication in backup.ps1'
+    }
+    # Audit every cmdlet invoked with -LiteralPath in backup.ps1 against current PS runtime parameters
+    foreach ($mLp in [regex]::Matches($txt, '([A-Za-z]+-[A-Za-z]+)\s+-LiteralPath')) {
+        $cmdName = $mLp.Groups[1].Value
+        if (-not (Get-Command $cmdName).Parameters.ContainsKey('LiteralPath')) {
+            throw "Cmdlet $cmdName does not support -LiteralPath in PowerShell $($PSVersionTable.PSVersion)"
+        }
+    }
 
     # 4. Verify stderr-emitting native command under EAP=Stop wrapped with Continue/finally does NOT throw and preserves $LASTEXITCODE
     $prevEap = $ErrorActionPreference
