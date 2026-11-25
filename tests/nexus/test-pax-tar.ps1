@@ -48,7 +48,7 @@ try{
 
  # A: archive, reader, writer checksum, snapshot
  $tarA=Join-Path $out 'work-preseed.tar'
- $pre=Write-NexusArchive $src $tarA 'work/' $rels 0
+ $pre=Write-NexusArchive $src $tarA 'work/' $rels 0 $false
  [void]$files.Add($tarA)
  Check 'writer counts every file' ($pre.Entries -eq 6)
  Check 'writer snapshot covers every file' ($pre.Snapshot.Count -eq 6)
@@ -75,6 +75,8 @@ try{
   & $tar -xf $tarA -C $ext 2>$null
   $shortOk=((Get-NexusSha256 (Join-Path $ext 'work\small.txt')) -eq (Get-NexusSha256 (Join-Path $src 'small.txt'))) -and ((Get-NexusSha256 (Join-Path $ext 'work\bin.dat')) -eq (Get-NexusSha256 (Join-Path $src 'bin.dat')))
   Check 'tar.exe extraction reproduces binary and text content' $shortOk
+  $unicodeExtracted=Join-Path $ext ('work\'+$cn+'.txt')
+  Check 'tar.exe extraction restores unicode file name with identical content' ((Test-Path -LiteralPath $unicodeExtracted) -and ((Get-NexusSha256 $unicodeExtracted) -eq (Get-NexusSha256 (Join-Path $src ($cn+'.txt')))))
  }else{Check 'tar.exe present for interoperability check' $false}
 
  # C: corrupted header rejected
@@ -85,7 +87,7 @@ try{
 
  # D: deadline rejects writes past the budget
  $deadlineTar=Join-Path $out 'deadline.tar'
- $rejected=$false;try{[void](Write-NexusArchive $src $deadlineTar 'work/' $rels 1)}catch{$rejected=$true}
+ $rejected=$false;try{[void](Write-NexusArchive $src $deadlineTar 'work/' $rels 1 $false)}catch{$rejected=$true}
  [void]$files.Add($deadlineTar)
  Check 'deadline exceeded rejected' $rejected
 
@@ -96,18 +98,18 @@ try{
  MakeFile (Join-Path $src2 'locked.txt') ([Text.Encoding]::ASCII.GetBytes('lock'))
  $lockFs=[IO.File]::Open((Join-Path $src2 'locked.txt'),[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
  $tarPre2=Join-Path $out 'pre2.tar';[void]$files.Add($tarPre2)
- $pre2=Write-NexusArchive $src2 $tarPre2 'work/' ([NexusPaxArchiver]::ListFiles($src2)) 0
+ $pre2=Write-NexusArchive $src2 $tarPre2 'work/' ([NexusPaxArchiver]::ListFiles($src2)) 0 $true
  Check 'hot pass records locked file instead of skipping silently' ($pre2.Locked -contains 'locked.txt' -and $pre2.Entries -eq 3)
  $lockFs.Dispose();$lockFs=$null
  [IO.File]::WriteAllBytes((Join-Path $src2 'small.txt'),[Text.Encoding]::ASCII.GetBytes('abcdef'))
  [IO.File]::WriteAllBytes((Join-Path $src2 'new.txt'),[Text.Encoding]::ASCII.GetBytes('new'));[void]$files.Add((Join-Path $src2 'new.txt'))
  [IO.File]::Delete((Join-Path $src2 'del.txt'))
  $changed=New-Object Collections.ArrayList;$deleted=New-Object Collections.ArrayList
- [NexusPaxArchiver]::Delta($src2,$pre2.Snapshot,$pre2.Locked,$changed,$deleted)
+ [NexusPaxArchiver]::Delta($src2,$pre2.Snapshot,$pre2.Locked,$changed,$deleted,0)
  Check 'delta picks modified, new and forced locked files' (($changed -contains 'small.txt') -and ($changed -contains 'new.txt') -and ($changed -contains 'locked.txt') -and -not ($changed -contains 'keep.bin'))
  Check 'delta lists only deleted paths' (($deleted.Count -eq 1) -and ($deleted[0] -eq 'del.txt'))
  $tarDelta=Join-Path $out 'work-delta.tar';[void]$files.Add($tarDelta)
- $delta=Write-NexusArchive $src2 $tarDelta 'work/' $changed 0
+ $delta=Write-NexusArchive $src2 $tarDelta 'work/' $changed 0 $false
  $dn=@([NexusPaxReader]::List($tarDelta) | ForEach-Object {[string]$_.Name}) | Sort-Object
  $dw=@($changed | ForEach-Object {'work/'+$_}) | Sort-Object
  Check 'delta archive contains exactly the changed set' (($dn -join '|') -eq ($dw -join '|'))
@@ -121,6 +123,28 @@ try{
  $rejected=$false;try{[void](Get-NexusReceiptNames @{Format='pax-tar-v9';Archives=@()})}catch{$rejected=$true}
  Check 'receipt rejects unknown format' $rejected
  Check 'legacy receipt without format is not handled by pax whitelist' ($null -eq (Get-NexusReceiptNames @{Owner='nexus-direct-v1';Work=@()}))
+
+ # H: hot transient handling, truncated source padding, mtime clamp, deadline in delta, '..' receipt rejection
+ $ghostLocked=New-Object Collections.ArrayList;$ghostMs=New-Object IO.MemoryStream;$ghostW=New-Object NexusPaxWriter -ArgumentList $ghostMs
+ $ghostSnap=[NexusPaxArchiver]::ArchiveNames($src,'work/',$ghostW,@('ghost.txt'),$ghostLocked,$true)
+ Check 'hot pass skips a vanished file without failing' (($ghostSnap.Count -eq 0) -and ($ghostLocked.Count -eq 0))
+ $rejected=$false;try{[void][NexusPaxArchiver]::ArchiveNames($src,'work/',$ghostW,@('ghost.txt'),$ghostLocked,$false)}catch{$rejected=$true}
+ Check 'stopped pass rejects a vanished file' $rejected
+ $ghostW.Dispose();$ghostMs.Dispose()
+ $shortMs=New-Object IO.MemoryStream;$shortW=New-Object NexusPaxWriter -ArgumentList $shortMs
+ $shortSrc=New-Object IO.MemoryStream;$shortSrc.Write([byte[]](1,2,3),0,3);$shortSrc.Position=0
+ $padded=$shortW.AddFile('short.bin',$shortSrc,10,-5)
+ [void]$shortW.AddFile('late.bin',(New-Object IO.MemoryStream),0,9999999999999)
+ $shortW.Finish()
+ $shortTar=Join-Path $out 'short.tar';[IO.File]::WriteAllBytes($shortTar,$shortMs.ToArray());[void]$files.Add($shortTar)
+ $shortEntries=@([NexusPaxReader]::List($shortTar))
+ Check 'truncated source is zero-padded to the declared length and reported' (($padded -eq 7) -and ($shortEntries[0].Size -eq 10) -and ($shortEntries[0].Mtime -eq 0))
+ Check 'mtime above the tar range is clamped' ($shortEntries[1].Mtime -eq 8589934591)
+ $shortW.Dispose();$shortMs.Dispose();$shortSrc.Dispose()
+ $rejected=$false;try{[void](Get-NexusReceiptNames @{Format='pax-tar-v2';Archives=@(@{Name='..'})})}catch{$rejected=$true}
+ Check 'receipt rejects dot-dot archive name' $rejected
+ $rejected=$false;try{[void][NexusPaxArchiver]::Delta($src2,$pre2.Snapshot,$pre2.Locked,(New-Object Collections.ArrayList),(New-Object Collections.ArrayList),1)}catch{$rejected=$true}
+ Check 'stopped delta honours its deadline' $rejected
 
  # G: archive size gate used before publishing and by Clean
  $sizeDir=Join-Path $out 'sizes';[void][IO.Directory]::CreateDirectory($sizeDir);[void]$dirs.Add($sizeDir)

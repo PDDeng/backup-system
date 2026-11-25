@@ -18,7 +18,7 @@ foreach($sid in @('S-1-5-18','S-1-5-32-544')){
 }
 Set-Acl -Path $private -AclObject $acl
 $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'
-foreach($name in @('nexus-backup.ps1','nexus-config.ps1','json-compat.ps1')){
+foreach($name in @('nexus-backup.ps1','nexus-config.ps1','json-compat.ps1','pax-tar.ps1')){
  $dest=Join-Path $private $name
  if(Test-Path -LiteralPath $dest){Copy-Item -LiteralPath $dest -Destination ($dest+'.before-'+$stamp)}
  Copy-Item -LiteralPath (Join-Path $origin $name) -Destination $dest -Force

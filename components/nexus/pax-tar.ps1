@@ -1,5 +1,6 @@
-# Windows PowerShell 2.0 / .NET 2+ compatible streaming POSIX pax tar writer for the Nexus backup.
+# Windows PowerShell 2.0 / .NET 2.0 compatible streaming POSIX pax tar writer for the Nexus backup.
 # Self-contained: no local temporary archives, no external archive tools, long-path aware (\\?\).
+# The C# below must compile with the .NET 2.0 csc.exe (see tests/nexus/test-csc20.ps1).
 if (-not ('NexusPaxWriter' -as [type])) {
 Add-Type -TypeDefinition @'
 using System;
@@ -12,9 +13,12 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 public class NexusPaxWriter : IDisposable {
+  const long MaxTarTime = 8589934591L;
   readonly Stream output;
   readonly SHA256 sha = new SHA256Managed();
   readonly CryptoStream hashing;
+  readonly byte[] copyBuf = new byte[1 << 20];
+  readonly byte[] zero = new byte[512];
   public long Entries;
   public long Bytes;
   public long DeadlineTicks;
@@ -28,6 +32,15 @@ public class NexusPaxWriter : IDisposable {
     output.Write(b, off, len);
     hashing.Write(b, off, len);
     Bytes += len;
+  }
+  static bool HasNonAscii(string s) {
+    foreach (char c in s) if (c > 127) return true;
+    return false;
+  }
+  static string AsciiName(string s) {
+    char[] c = s.ToCharArray();
+    for (int i = 0; i < c.Length; i++) if (c[i] > 127) c[i] = '_';
+    return new string(c);
   }
   static void PutText(byte[] h, int off, int len, string s) {
     byte[] b = Encoding.UTF8.GetBytes(s);
@@ -57,7 +70,7 @@ public class NexusPaxWriter : IDisposable {
     PutOctal(h, 329, 8, 0);
     PutOctal(h, 337, 8, 0);
     long sum = 0;
-    for (int i = 0; i < 512; i++) sum += h[i];
+    for (int i = 0; i < 512; i++) sum += (int)h[i];
     string cs = Convert.ToString(sum, 8).PadLeft(6, '0');
     for (int i = 0; i < 6; i++) h[148 + i] = (byte)cs[i];
     h[154] = 0;
@@ -80,39 +93,52 @@ public class NexusPaxWriter : IDisposable {
   }
   void Pad(long len) {
     int r = (int)(len % 512);
-    if (r != 0) { byte[] z = new byte[512 - r]; Emit(z, 0, z.Length); }
+    if (r != 0) Emit(zero, 0, 512 - r);
   }
-  public void AddFile(string name, Stream data, long length, long mtimeUnix) {
+  void ZeroFill(long n) {
+    while (n > 0) {
+      int k = (int)Math.Min(512L, n);
+      Emit(zero, 0, k);
+      n -= k;
+    }
+  }
+  void WriteExtended(string name, byte[] records, long mtime) {
+    Emit(Header("PaxHeaders/" + AsciiName(Path.GetFileName(name)), records.Length, mtime, (byte)'x'), 0, 512);
+    Emit(records, 0, records.Length);
+    Pad(records.Length);
+  }
+  // Returns the number of bytes zero-filled because the source ended early (file truncated while reading).
+  // A non-zero result means the entry is not a faithful copy and must be superseded by the stopped delta.
+  public long AddFile(string name, Stream data, long length, long mtimeUnix) {
     if (name.Length == 0 || name.StartsWith("/") || name.Contains("\\")) throw new ArgumentException("Invalid archive name: " + name);
+    if (mtimeUnix < 0) mtimeUnix = 0;
+    if (mtimeUnix > MaxTarTime) mtimeUnix = MaxTarTime;
     byte[] nb = Encoding.UTF8.GetBytes(name);
     bool big = length >= 8589934592L;
-    if (nb.Length > 100 || big) {
+    if (nb.Length > 100 || HasNonAscii(name) || big) {
       MemoryStream recs = new MemoryStream();
-      if (nb.Length > 100) { byte[] r = PaxRecord("path", name); recs.Write(r, 0, r.Length); }
+      if (nb.Length > 100 || HasNonAscii(name)) { byte[] r = PaxRecord("path", name); recs.Write(r, 0, r.Length); }
       if (big) { byte[] r = PaxRecord("size", length.ToString(CultureInfo.InvariantCulture)); recs.Write(r, 0, r.Length); }
-      byte[] extended = recs.ToArray();
-      Emit(Header("PaxHeaders/" + Path.GetFileName(name), extended.Length, mtimeUnix, (byte)'x'), 0, 512);
-      Emit(extended, 0, extended.Length);
-      Pad(extended.Length);
+      WriteExtended(name, recs.ToArray(), mtimeUnix);
     }
-    Emit(Header(name, big ? 0 : length, mtimeUnix, (byte)'0'), 0, 512);
-    byte[] buf = new byte[1 << 20];
+    Emit(Header(AsciiName(name), big ? 0 : length, mtimeUnix, (byte)'0'), 0, 512);
     long left = length;
+    long padded = 0;
     while (left > 0) {
-      int n = data.Read(buf, 0, (int)Math.Min((long)buf.Length, left));
-      if (n <= 0) throw new IOException("Source shorter than snapshot: " + name);
-      Emit(buf, 0, n);
+      int n = data.Read(copyBuf, 0, (int)Math.Min((long)copyBuf.Length, left));
+      if (n <= 0) { padded = left; ZeroFill(left); left = 0; break; }
+      Emit(copyBuf, 0, n);
       left -= n;
     }
     Pad(length);
     Entries++;
+    return padded;
   }
-  public void AddBytes(string name, byte[] data, long mtimeUnix) {
-    AddFile(name, new MemoryStream(data), data.Length, mtimeUnix);
+  public long AddBytes(string name, byte[] data, long mtimeUnix) {
+    return AddFile(name, new MemoryStream(data), data.Length, mtimeUnix);
   }
   public void Finish() {
-    byte[] z = new byte[1024];
-    Emit(z, 0, z.Length);
+    ZeroFill(1024);
     hashing.FlushFinalBlock();
     Sha256 = BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant();
     output.Flush();
@@ -148,7 +174,7 @@ public class NexusPaxReader {
   static void Check(byte[] h) {
     long stored = Octal(h, 148, 8);
     long sum = 0;
-    for (int i = 0; i < 512; i++) sum += (i >= 148 && i < 156) ? 32 : h[i];
+    for (int i = 0; i < 512; i++) sum += (i >= 148 && i < 156) ? 32 : (int)h[i];
     if (sum != stored) throw new IOException("Tar header checksum mismatch");
   }
   static void Records(byte[] data, ref string path, ref long size) {
@@ -180,6 +206,7 @@ public class NexusPaxReader {
         Check(h);
         string name = Text(h, 0, 100);
         long size = Octal(h, 124, 12);
+        long mtime = Octal(h, 136, 12);
         byte type = h[156];
         if (type == (byte)'x') {
           byte[] data = new byte[size];
@@ -196,6 +223,7 @@ public class NexusPaxReader {
           Hashtable e = new Hashtable();
           e["Name"] = name;
           e["Size"] = size;
+          e["Mtime"] = mtime;
           list.Add(e);
         }
         fs.Seek(size + (512 - size % 512) % 512, SeekOrigin.Current);
@@ -231,7 +259,7 @@ public class NexusPaxArchiver {
   static FileStream OpenRead(string path) {
     SafeFileHandle h = CreateFileW(Extended(path), 0x80000000, 0x7, IntPtr.Zero, 3, 0x80, IntPtr.Zero);
     if (h.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "Open failed: " + path);
-    return new FileStream(h, FileAccess.Read, 1 << 16, false);
+    return new FileStream(h, FileAccess.Read, 1 << 20, false);
   }
   static long WriteTicks(FileStream fs) {
     long c, a, w;
@@ -283,9 +311,11 @@ public class NexusPaxArchiver {
     foreach (NexusPaxScanEntry e in Scan(root)) names.Add(Rel(root, e.FullName));
     return names;
   }
-  // Archives the named files (relative, '/' separated). Locked or changed-while-reading files are recorded as deferred:
-  // they get no snapshot record, so the stopped delta always rewrites them and supersedes the hot copy.
-  public static Hashtable ArchiveNames(string root, string prefix, NexusPaxWriter w, IList names, IList locked) {
+  // Archives the named files (relative, '/' separated).
+  // Deferred (no snapshot record, listed in locked): sharing violations, files truncated or changed while reading.
+  // Hot pass (allowTransient): a file that vanished (Win32 2/3) is skipped; the stopped delta sees the removal.
+  // Stopped pass: a vanished file is an error because the stopped snapshot must be complete.
+  public static Hashtable ArchiveNames(string root, string prefix, NexusPaxWriter w, IList names, IList locked, bool allowTransient) {
     Hashtable snapshot = new Hashtable();
     foreach (string rel in names) {
       string path = Path.Combine(root, rel.Replace('/', '\\'));
@@ -293,23 +323,28 @@ public class NexusPaxArchiver {
       try {
         fs = OpenRead(path);
       } catch (Win32Exception ex) {
-        if (ex.NativeErrorCode == 32 || ex.NativeErrorCode == 33) { locked.Add(rel); continue; }
+        int code = ex.NativeErrorCode;
+        if (code == 32 || code == 33) { locked.Add(rel); continue; }
+        if (allowTransient && (code == 2 || code == 3)) continue;
         throw;
       }
       using (fs) {
         long length = fs.Length;
         long ticks = WriteTicks(fs);
-        w.AddFile(prefix + rel, fs, length, UnixSeconds(ticks));
-        if (WriteTicks(fs) != ticks || fs.Length != length) { locked.Add(rel); continue; }
+        long padded = w.AddFile(prefix + rel, fs, length, UnixSeconds(ticks));
+        if (padded > 0 || WriteTicks(fs) != ticks || fs.Length != length) { locked.Add(rel); continue; }
         snapshot[rel] = new long[] { length, ticks };
       }
     }
     return snapshot;
   }
-  // Compares a stopped-time scan with the hot snapshot. changed = new + modified + forced (locked then present).
-  public static void Delta(string root, Hashtable before, IList forced, IList changed, IList deleted) {
+  // Compares a stopped-time scan with the hot snapshot. changed = new + modified + forced (deferred, then present).
+  public static void Delta(string root, Hashtable before, IList forced, IList changed, IList deleted, long deadlineTicks) {
+    if (deadlineTicks > 0 && DateTime.UtcNow.Ticks > deadlineTicks) throw new IOException("Stopped scan deadline exceeded");
     Hashtable seen = new Hashtable();
+    int n = 0;
     foreach (NexusPaxScanEntry e in Scan(root)) {
+      if (deadlineTicks > 0 && (++n % 1024) == 0 && DateTime.UtcNow.Ticks > deadlineTicks) throw new IOException("Stopped scan deadline exceeded");
       string rel = Rel(root, e.FullName);
       seen[rel] = true;
       long[] old = before[rel] as long[];
@@ -321,16 +356,20 @@ public class NexusPaxArchiver {
 }
 '@
 }
-function Write-NexusArchive([string]$root,[string]$path,[string]$prefix,$names,[long]$deadlineTicks){
-  $fs=[IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+function Write-NexusArchive([string]$root,[string]$path,[string]$prefix,$names,[long]$deadlineTicks,[bool]$hot){
+  $fs=New-Object IO.FileStream -ArgumentList $path,([IO.FileMode]::CreateNew),([IO.FileAccess]::Write),([IO.FileShare]::None),1048576
+  $w=$null
   try{
-    $w=New-Object NexusPaxWriter $fs
+    $w=New-Object NexusPaxWriter -ArgumentList $fs
     $w.DeadlineTicks=$deadlineTicks
     $locked=New-Object Collections.ArrayList
-    $snapshot=[NexusPaxArchiver]::ArchiveNames($root,$prefix,$w,$names,$locked)
+    $snapshot=[NexusPaxArchiver]::ArchiveNames($root,$prefix,$w,$names,$locked,$hot)
     $w.Finish()
     return @{Name=[IO.Path]::GetFileName($path);Bytes=$w.Bytes;Sha256=$w.Sha256;Entries=$w.Entries;Snapshot=$snapshot;Locked=$locked}
-  }finally{$fs.Dispose()}
+  }finally{
+    if($w){$w.Dispose()}
+    $fs.Dispose()
+  }
 }
 function Get-NexusSha256([string]$path){
   $sha=New-Object Security.Cryptography.SHA256Managed
@@ -343,7 +382,7 @@ function Get-NexusReceiptNames($receipt){
   if($receipt.Format -ne 'pax-tar-v2'){throw ('Unknown receipt format: '+$receipt.Format)}
   $names=@('backup-result.json')
   foreach($a in @($receipt.Archives)){
-    if($a.Name -notmatch '^[A-Za-z0-9._-]+$' -or $a.Name -eq 'backup-result.json'){throw ('Unsafe archive name in receipt: '+$a.Name)}
+    if($a.Name -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$' -or $a.Name -eq 'backup-result.json'){throw ('Unsafe archive name in receipt: '+$a.Name)}
     $names+=$a.Name
   }
   return $names

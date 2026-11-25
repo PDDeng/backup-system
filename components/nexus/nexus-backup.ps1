@@ -223,9 +223,10 @@ try{
  $pending=Join-Path $day ('.'+$run+'.partial');[void][IO.Directory]::CreateDirectory($pending)
  Notice 'START' 'Live streaming archive to NAS243; final stopped delta follows; uploads/downloads briefly unavailable'
  # Phase 1 (hot): streamed PAX archives straight to NAS243 .partial. Not a valid backup by itself.
- $preseed=Write-NexusArchive $c.Work (Join-Path $pending 'work-preseed.tar') 'work/' ([NexusPaxArchiver]::ListFiles($c.Work)) ([DateTime]::UtcNow.AddSeconds(7200).Ticks)
- $application=Write-NexusArchive $c.Home (Join-Path $pending 'application.tar') 'application/' ([NexusPaxArchiver]::ListFiles($c.Home)) ([DateTime]::UtcNow.AddSeconds(3600).Ticks)
+ $preseed=Write-NexusArchive $c.Work (Join-Path $pending 'work-preseed.tar') 'work/' ([NexusPaxArchiver]::ListFiles($c.Work)) ([DateTime]::UtcNow.AddSeconds(7200).Ticks) $true
+ $application=Write-NexusArchive $c.Home (Join-Path $pending 'application.tar') 'application/' ([NexusPaxArchiver]::ListFiles($c.Home)) ([DateTime]::UtcNow.AddSeconds(3600).Ticks) $true
  foreach($l in @($preseed.Locked)){Log ('HOT_LOCKED_DEFERRED work/'+$l)}
+ foreach($l in @($application.Locked)){Log ('HOT_LOCKED_DEFERRED application/'+$l)}
  $watchdog=ArmWatchdog
  $stoppedByUs=$true;$down=[Diagnostics.Stopwatch]::StartNew();Log 'STOPPING nexus-webapp'
  Stop-Service $c.Service
@@ -234,41 +235,57 @@ try{
   # Phase 2 (stopped): only changed/new/locked work files and deleted paths, bounded by MaxStoppedCopySeconds.
   $stopDeadline=[DateTime]::UtcNow.AddSeconds($c.MaxStoppedCopySeconds).Ticks
   $changed=New-Object Collections.ArrayList;$deleted=New-Object Collections.ArrayList
-  [NexusPaxArchiver]::Delta($c.Work,$preseed.Snapshot,$preseed.Locked,$changed,$deleted)
-  Log ('DELTA_COMPUTED changed='+$changed.Count+' deleted='+$deleted.Count)
-  $delta=Write-NexusArchive $c.Work (Join-Path $pending 'work-delta.tar') 'work/' $changed $stopDeadline
-  if($delta.Locked.Count -gt 0){throw ('Files still locked while Nexus is stopped; backup not published: '+$delta.Locked.Count)}
-  [IO.File]::WriteAllText((Join-Path $pending 'deleted-paths.json'),$json.Serialize(@($deleted.ToArray())),$utf8)
+  [NexusPaxArchiver]::Delta($c.Work,$preseed.Snapshot,$preseed.Locked,$changed,$deleted,$stopDeadline)
+  Log ('DELTA_COMPUTED work changed='+$changed.Count+' deleted='+$deleted.Count)
+  $delta=Write-NexusArchive $c.Work (Join-Path $pending 'work-delta.tar') 'work/' $changed $stopDeadline $false
+  $homeChanged=New-Object Collections.ArrayList;$homeDeleted=New-Object Collections.ArrayList
+  [NexusPaxArchiver]::Delta($c.Home,$application.Snapshot,$application.Locked,$homeChanged,$homeDeleted,$stopDeadline)
+  Log ('DELTA_COMPUTED application changed='+$homeChanged.Count+' deleted='+$homeDeleted.Count)
+  $appDelta=Write-NexusArchive $c.Home (Join-Path $pending 'application-delta.tar') 'application/' $homeChanged $stopDeadline $false
+  if($delta.Locked.Count -gt 0 -or $appDelta.Locked.Count -gt 0){throw ('Files still locked while Nexus is stopped; backup not published: '+($delta.Locked.Count+$appDelta.Locked.Count))}
+  [IO.File]::WriteAllText((Join-Path $pending 'deleted-paths.json'),$json.Serialize(@{work=@($deleted.ToArray());application=@($homeDeleted.ToArray())}),$utf8)
   if($down.Elapsed.TotalMinutes -ge ($c.RestartWatchdogMinutes-1) -or (Get-Service $c.Service).Status -ne 'Stopped'){throw 'Stopped snapshot window exceeded or watchdog fired; backup not published'}
  }finally{Restore;$down.Stop();$stoppedByUs=$false;Log ('SERVICE_HEALTHY downtime_seconds='+[Math]::Round($down.Elapsed.TotalSeconds,1))}
  $watchdog.DeleteTask('CoreBackup-Nexus-Recover',0);$watchdog=$null
  # The archives are sealed in NAS243 .partial; record size and writer SHA256 per archive for the receipt.
  $archives=@()
- foreach($a in @($preseed,$application,$delta)){$archives+=@{Name=$a.Name;Bytes=$a.Bytes;Sha256=$a.Sha256;Entries=$a.Entries}}
+ foreach($a in @($preseed,$application,$delta,$appDelta)){$archives+=@{Name=$a.Name;Bytes=$a.Bytes;Sha256=$a.Sha256;Entries=$a.Entries}}
  $deletedFile=Join-Path $pending 'deleted-paths.json'
  $archives+=@{Name='deleted-paths.json';Bytes=([IO.FileInfo]$deletedFile).Length;Sha256=(Get-NexusSha256 $deletedFile);Entries=0}
  $sourceFiles=[long]($preseed.Entries+$application.Entries);$sourceBytes=[long]0
  foreach($h in @($preseed.Snapshot,$application.Snapshot)){foreach($v in $h.Values){$sourceBytes+=[long]$v[0]}}
- $receipt=@{Owner='nexus-direct-v1';Format='pax-tar-v2';Asset=$c.Asset;Run=$run;Date=$date;Verification='size_and_writer_sha256';StoppedSeconds=[Math]::Round($down.Elapsed.TotalSeconds,1);SourceFileCount=$sourceFiles;SourceBytes=$sourceBytes;DeltaFiles=[long]$delta.Entries;DeltaDeleted=$deleted.Count;Archives=$archives}
+ $receipt=@{Owner='nexus-direct-v1';Format='pax-tar-v2';Asset=$c.Asset;Run=$run;Date=$date;Verification='size_and_writer_sha256';StoppedSeconds=[Math]::Round($down.Elapsed.TotalSeconds,1);SourceFileCount=$sourceFiles;SourceBytes=$sourceBytes;DeltaFiles=[long]($delta.Entries+$appDelta.Entries);DeltaDeleted=[long]($deleted.Count+$homeDeleted.Count);Archives=$archives}
  [IO.File]::WriteAllText((Join-Path $pending 'backup-result.json'),$json.Serialize($receipt),$utf8)
  $final=Join-Path $day $run;[IO.Directory]::Move($pending,$final)
  [void][IO.Directory]::CreateDirectory((Join-Path $private 'receipts'))
  [IO.File]::Copy((Join-Path $final 'backup-result.json'),(Join-Path $private ('receipts\'+$run+'.json')),$false)
  Notice 'SUCCESS' ('NAS243 complete; service healthy; run='+$run)
- $secondaryDay=Join-Path $secondaryBase $date;[void][IO.Directory]::CreateDirectory($secondaryDay)
- $secondaryPending=Join-Path $secondaryDay ('.'+$run+'.partial');[void][IO.Directory]::CreateDirectory($secondaryPending)
- CopyTree $final $secondaryPending $false 7200
- Test-NexusArchiveSizes $secondaryPending $archives
- [IO.Directory]::Move($secondaryPending,(Join-Path $secondaryDay $run))
- $tertiaryDay=Join-Path $tertiaryBase $date;[void][IO.Directory]::CreateDirectory($tertiaryDay)
- $tertiaryPending=Join-Path $tertiaryDay ('.'+$run+'.partial');[void][IO.Directory]::CreateDirectory($tertiaryPending)
- CopyTree $final $tertiaryPending $false 7200
- Test-NexusArchiveSizes $tertiaryPending $archives
- [IO.Directory]::Move($tertiaryPending,(Join-Path $tertiaryDay $run))
- $clean243=Clean $base;$clean254=Clean $secondaryBase;$clean240=Clean $tertiaryBase
- $result=@{Status='success';Run=$run;Targets=@{nas243=$true;win254=$true;nas240=$true};Verification='size_and_writer_sha256';Seconds=[Math]::Round($timer.Elapsed.TotalSeconds,1);StoppedSeconds=$receipt.StoppedSeconds}
+ # Phase 3 runs with Nexus already healthy. Each secondary target is isolated: a failure never touches NAS243 or restarts Nexus.
+ $tier=@{nas243=$true;win254=$false;nas240=$false};$tierError=@{}
+ try{
+  $secondaryDay=Join-Path $secondaryBase $date;[void][IO.Directory]::CreateDirectory($secondaryDay)
+  $secondaryPending=Join-Path $secondaryDay ('.'+$run+'.partial');[void][IO.Directory]::CreateDirectory($secondaryPending)
+  CopyTree $final $secondaryPending $false 7200
+  Test-NexusArchiveSizes $secondaryPending $archives
+  [IO.Directory]::Move($secondaryPending,(Join-Path $secondaryDay $run))
+  $tier.win254=$true
+ }catch{$tierError['win254']=$_.Exception.Message;Log ('TIER3_FAILED win254 '+$_.Exception.Message)}
+ try{
+  $tertiaryDay=Join-Path $tertiaryBase $date;[void][IO.Directory]::CreateDirectory($tertiaryDay)
+  $tertiaryPending=Join-Path $tertiaryDay ('.'+$run+'.partial');[void][IO.Directory]::CreateDirectory($tertiaryPending)
+  CopyTree $final $tertiaryPending $false 7200
+  Test-NexusArchiveSizes $tertiaryPending $archives
+  [IO.Directory]::Move($tertiaryPending,(Join-Path $tertiaryDay $run))
+  $tier.nas240=$true
+ }catch{$tierError['nas240']=$_.Exception.Message;Log ('TIER3_FAILED nas240 '+$_.Exception.Message)}
+ $clean243=Clean $base
+ $clean254='skipped';$clean240='skipped'
+ if($tier.win254){try{$clean254=Clean $secondaryBase}catch{$tier.win254=$false;$tierError['win254']='cleanup: '+$_.Exception.Message;Log ('TIER3_CLEAN_FAILED win254 '+$_.Exception.Message)}}
+ if($tier.nas240){try{$clean240=Clean $tertiaryBase}catch{$tier.nas240=$false;$tierError['nas240']='cleanup: '+$_.Exception.Message;Log ('TIER3_CLEAN_FAILED nas240 '+$_.Exception.Message)}}
+ $allOk=[bool]($tier.win254 -and $tier.nas240)
+ $result=@{Status=$(if($allOk){'success'}else{'partial'});Run=$run;Targets=$tier;TierErrors=$tierError;Verification='size_and_writer_sha256';Seconds=[Math]::Round($timer.Elapsed.TotalSeconds,1);StoppedSeconds=$receipt.StoppedSeconds}
  [IO.File]::WriteAllText((Join-Path $private 'last-result.json'),$json.Serialize($result),$utf8)
- Log ('SUCCESS '+$run);Notice 'SUMMARY' ("【Nexus备份｜全部成功】`n资产："+$c.Asset+"`n目标：243成功 / 254成功 / 240成功`n校验：仅存在/大小，未做MD5`n清理运行目录：243="+$clean243+' / 254='+$clean254+' / 240='+$clean240+"`n保留："+$c.KeepDates+"个成功日期`n服务：已恢复，HTTP健康检查通过`n批次："+$run+"`n总耗时："+[int]$timer.Elapsed.TotalSeconds+'秒；停机窗口：'+$receipt.StoppedSeconds+'秒')
+ Log ('SUCCESS '+$run);Notice 'SUMMARY' ("【Nexus备份｜$(if($allOk){'全部成功'}else{'分发未全部完成'})】`n资产："+$c.Asset+"`n目标：243成功 / 254$(if($tier.win254){'成功'}else{'失败'}) / 240$(if($tier.nas240){'成功'}else{'失败'})`n校验：243写入期SHA256；254/240大小核对（未回读哈希）`n清理运行目录：243="+$clean243+' / 254='+$clean254+' / 240='+$clean240+"`n保留："+$c.KeepDates+"个成功日期`n服务：已恢复，HTTP健康检查通过`n批次："+$run+"`n总耗时："+[int]$timer.Elapsed.TotalSeconds+'秒；停机窗口：'+$receipt.StoppedSeconds+'秒')
 }catch{
  Log ('FAILURE '+$_.Exception.Message);$backupFailure=$_.Exception.Message
  Log ('ERROR_LOCATION '+$_.InvocationInfo.PositionMessage)
