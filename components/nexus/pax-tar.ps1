@@ -259,7 +259,7 @@ public class NexusPaxArchiver {
   static FileStream OpenRead(string path) {
     SafeFileHandle h = CreateFileW(Extended(path), 0x80000000, 0x7, IntPtr.Zero, 3, 0x80, IntPtr.Zero);
     if (h.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "Open failed: " + path);
-    return new FileStream(h, FileAccess.Read, 1 << 20, false);
+    return new FileStream(h, FileAccess.Read, 1 << 16, false);
   }
   static long WriteTicks(FileStream fs) {
     long c, a, w;
