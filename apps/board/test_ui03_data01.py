@@ -88,6 +88,45 @@ class WebhookSettingsTests(unittest.TestCase):
             after = read_settings(cfg)
             self.assertTrue(after["last_test"]["ok"])
 
+    def test_host_trigger_bridge_roundtrip(self):
+        import os, threading, time
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "daily-webhook.json"
+            url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=testkey-0123456789"
+            save_settings({"enabled": True, "webhook_url": url}, cfg)
+
+            def fake_host_worker():
+                req_p = Path(tmp) / "test-request.json"
+                res_p = Path(tmp) / "test-result.json"
+                for _ in range(50):
+                    if req_p.exists():
+                        req = json.loads(req_p.read_text(encoding="utf-8"))
+                        res_p.write_text(json.dumps({
+                            "request_id": req["request_id"],
+                            "ok": True,
+                            "errcode": 0,
+                            "errmsg": "ok",
+                            "sent_at": "2026-11-26T00:08:00+08:00",
+                        }), encoding="utf-8")
+                        return
+                    time.sleep(0.05)
+
+            t = threading.Thread(target=fake_host_worker, daemon=True)
+            t.start()
+            old = os.environ.get("WEBHOOK_HOST_TRIGGER")
+            os.environ["WEBHOOK_HOST_TRIGGER"] = "1"
+            try:
+                board = {"summary": {"total": 1, "delivered": 1, "attention": 0, "pending_verification": 0}, "assets": [{"name": "A", "state": "protected", "restore": {}}]}
+                res = send_test_message(board, cfg)
+                self.assertTrue(res["ok"])
+                self.assertEqual(res["errcode"], 0)
+            finally:
+                if old is None:
+                    os.environ.pop("WEBHOOK_HOST_TRIGGER", None)
+                else:
+                    os.environ["WEBHOOK_HOST_TRIGGER"] = old
+                t.join(timeout=2)
+
 
 class FeedExtrasTests(unittest.TestCase):
     def test_smb_browser_and_history_7d_real_receipts(self):

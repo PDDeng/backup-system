@@ -9,6 +9,8 @@ import datetime as dt
 import json
 import os
 import re
+import secrets
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -153,6 +155,51 @@ def send_test_message(board: dict, path: Path = None, opener=None) -> dict:
         raise ValueError("尚未保存 Webhook 地址，请先填写并保存")
     url = validate_webhook_url(url)
     content = build_summary_text(board, test_prefix=True)
+
+    # When web container runs on an internal-only Docker network (no outbound DNS/internet),
+    # delegate the HTTPS POST to the host-side systemd path worker via private /notify dir.
+    if opener is None and os.environ.get("WEBHOOK_HOST_TRIGGER", "").lower() in ("1", "true", "yes"):
+        req_id = secrets.token_hex(12)
+        req_file = p.parent / "test-request.json"
+        res_file = p.parent / "test-result.json"
+        if req_file.is_symlink() or res_file.is_symlink():
+            raise ValueError("测试触发文件路径异常")
+        req_payload = {"request_id": req_id, "content": content}
+        tmp = p.parent / "test-request.json.tmp"
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, json.dumps(req_payload, ensure_ascii=False).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.replace(str(tmp), str(req_file))
+
+        deadline = time.monotonic() + 12.0
+        result = None
+        while time.monotonic() < deadline:
+            res = _read_raw(res_file)
+            if res.get("request_id") == req_id:
+                result = res
+                break
+            time.sleep(0.2)
+        if result is None:
+            raise RuntimeError("宿主机推送服务未响应，请确认 core-backup-webhook-test.path 已启用")
+        if result.get("error"):
+            raise RuntimeError(str(result["error"]))
+        ok = bool(result.get("ok"))
+        errcode = result.get("errcode")
+        errmsg = str(result.get("errmsg") or "")
+        now_iso = str(result.get("sent_at") or dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).isoformat(timespec="seconds"))
+        if p.parent.is_dir() and os.access(str(p.parent), os.W_OK) and not p.is_symlink():
+            raw["LastTest"] = {"at": now_iso, "ok": ok, "errcode": errcode, "errmsg": errmsg[:120]}
+            tmp2 = p.with_suffix(".json.tmp")
+            fd = os.open(str(tmp2), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, (json.dumps(raw, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+            finally:
+                os.close(fd)
+            os.replace(str(tmp2), str(p))
+        return {"ok": ok, "errcode": errcode, "errmsg": errmsg, "sent_at": now_iso}
+
     body = json.dumps({"msgtype": "text", "text": {"content": content}}, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json; charset=utf-8"}, method="POST")
     fn = opener or urllib.request.urlopen
