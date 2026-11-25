@@ -6,7 +6,7 @@
       "title": "按 HTML 原型重构展示页样式并清楚标明每项数据来源与统计口径",
       "owner": "gemini-deputy",
       "reviewer": "opencode-worker",
-      "status": "in_review",
+      "status": "done",
       "depends_on": [],
       "allowed_paths": [
         "apps/board/static/",
@@ -14,12 +14,9 @@
       ],
       "branch": "ai/gemini/UI-01",
       "acceptance_criteria": [
-        "展示页视觉与交互布局参照 prototype/研发资料备份结果查询报告.html 与定稿截图落地浅蓝白底驾驶舱与右侧详情抽屉",
-        "完整保留既有登录、强制改密、账号管理、人工业务验收登记、30秒自动刷新、CSRF 与严格 CSP（无内联样式与脚本、无外部CDN）",
-        "在首页指标卡、矩阵页脚、存储/异常卡片、详情抽屉及独立口径说明区清楚标明每项数据的来源与统计口径",
-        "副本到位、大小核对、MD5复核、原生恢复验证与人工业务验收五项严格独立展示，互不覆盖",
-        "当日执行概要、近7天历史趋势和执行日志接口明确标示暂未接入，不用静态示例数据冒充生产结果",
-        "覆盖管理员与只读视角、空数据、过期数据、待MD5与异常场景验证，1920x1080/1366x768/390x844 无整页横向溢出且控制台零报错"
+        "展示页按 HTML 原型重构且清晰标明每项数据来源与统计口径",
+        "严格遵守 app.py CSP 且保留登录、权限、CSRF 与人工业务验收流程",
+        "经 OpenCode 独立代码审核（PR #2）、人类负责人验收并完成 ops253:8100 旁路灰度上线"
       ],
       "test_commands": [
         "node apps/board/test_acceptance_view.js",
@@ -27,25 +24,84 @@
         "python -m unittest discover -s apps/board -p \"test_acceptance.py\"",
         "python -m unittest discover -s apps/board -p \"test_content_audit.py\""
       ],
-      "evidence_paths": [],
-      "commit": null,
-      "production_change": false,
-      "authorization_reference": "人类负责人于 2026-11-25 授权仅改造展示页样式与口径标注，暂不改生产备份任务，暂不新增历史库与日志查询接口",
-      "rollback": "git revert <UI-01 commit> 或在未合并前直接丢弃分支 ai/gemini/UI-01；本分支不触发生产部署",
-      "blockers": [
-        "Codex 休息中，需由 opencode-worker 或人类负责人完成独立审核后再合并至 main"
+      "evidence_paths": [
+        "PR #2 (merged at 1f2e40f)",
+        "Issue #3 (closed)",
+        "ops253 container core-backup-board-ui01-20261125"
       ],
-      "updated_at": "2026-11-25T18:55:00+08:00"
+      "commit": "c079e35",
+      "production_change": true,
+      "authorization_reference": "人类负责人 2026-11-25 验收 18100 实时预览并明确指令先做 2 上线 8100",
+      "rollback": "sudo cp /var/lib/core-backup-ops/audit-20261125/start-access-proxy.before-ui01.sh /opt/backup-board/start-access-proxy.sh && sudo systemctl restart backup-board-access.service",
+      "blockers": [],
+      "updated_at": "2026-11-25T20:45:00+08:00"
     },
     {
-      "id": "DATA-01",
-      "title": "持久化每日快照、历史趋势与脱敏执行日志查询接口（暂缓，待 UI-01 验收后启动）",
+      "id": "FIX-KINGDEE-01",
+      "title": "修复金蝶备份脚本选日期策略并补充边界单元测试（不改生产主机）",
       "owner": "opencode-worker",
       "reviewer": "gemini-deputy",
       "status": "todo",
-      "depends_on": [
-        "UI-01"
+      "depends_on": [],
+      "allowed_paths": [
+        "components/kingdee/",
+        "tests/"
       ],
+      "branch": "ai/opencode/FIX-KINGDEE-01",
+      "acceptance_criteria": [
+        "修复 components/kingdee/backup.ps1 选日期策略：拒绝/跳过未来日期文件，当最新日期文件仍在写入或 0 字节时不因单文件异常而永久阻断旧已稳定日期的识别或给出明确可诊断分类",
+        "不改变 PowerShell 2.0 兼容性、不引入外部程序集、不改变既有清理安全门禁（仅清理带完整回执的托管目录）",
+        "新增可在本机 PowerShell 5.1 运行的自动化测试脚本覆盖：正常当日文件、多账套混杂未写完文件、异常未来日期文件名、0 字节文件、无合规日期等边界场景",
+        "提交至独立分支 ai/opencode/FIX-KINGDEE-01 并附完整测试输出，不操作生产服务器（上线前由主负责人核对 192.168.0.80 生产版本）"
+      ],
+      "test_commands": [
+        "powershell -NoProfile -ExecutionPolicy Bypass -File components/kingdee/test-json-compat.ps1"
+      ],
+      "evidence_paths": [],
+      "commit": null,
+      "production_change": false,
+      "authorization_reference": "仅仓库代码与本地测试，禁止直接修改生产金蝶主机",
+      "rollback": "独立分支隔离，未合入前可直接丢弃",
+      "blockers": [],
+      "updated_at": "2026-11-25T20:45:00+08:00"
+    },
+    {
+      "id": "OPS-AUDIT-01",
+      "title": "整理 Nexus 51 复制超时、SVN 29 WinRM 挂起及 Oracle46 首跑复核方案（待 Codex 恢复后接手）",
+      "owner": "codex-lead",
+      "reviewer": "gemini-deputy",
+      "status": "todo",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/nexus/",
+        "platform/",
+        "docs/"
+      ],
+      "branch": "ai/codex/OPS-AUDIT-01",
+      "acceptance_criteria": [
+        "恢复上线后先同步 origin/main（git pull --rebase）并按新角色（副负责人）核对 coordination/state.json (epoch 3) 与 HANDOFF.md",
+        "结合 ops253 已有审计日志（/var/lib/core-backup-ops/audit-20261125/），给出 Nexus 51 连续 8 次 Copy deadline exceeded（7734.6s）的可验证优化与安全窗口方案",
+        "给出 SVN 29（192.168.0.29 TCP5985 通但 WinRM ReadTimeout/Reset，且 11-19 后停更）的排查与恢复检查清单",
+        "在 2026-11-26 00:00 后复核 Oracle 46（10.10.10.46）首次每日临时 UNDO 备份实际结果，禁止提前标记通过"
+      ],
+      "test_commands": [],
+      "evidence_paths": [],
+      "commit": null,
+      "production_change": false,
+      "authorization_reference": "只读核查与方案提交；任何生产脚本/定时任务改动须另获人类负责人批准",
+      "rollback": "独立分支隔离，未合入前可直接丢弃",
+      "blockers": [
+        "Codex 当前休息中，恢复后按本任务单接入"
+      ],
+      "updated_at": "2026-11-25T20:45:00+08:00"
+    },
+    {
+      "id": "DATA-01",
+      "title": "持久化每日快照、历史趋势与脱敏执行日志查询接口（暂缓，待人类负责人放行）",
+      "owner": "opencode-worker",
+      "reviewer": "gemini-deputy",
+      "status": "todo",
+      "depends_on": [],
       "allowed_paths": [
         "platform/",
         "tests/"
@@ -59,12 +115,12 @@
       "evidence_paths": [],
       "commit": null,
       "production_change": false,
-      "authorization_reference": "待人类负责人放行后再进入实现阶段",
+      "authorization_reference": "人类负责人明确暂缓，待本阶段红灯清零并放行后再启动",
       "rollback": "独立分支隔离，未合入前可直接回退",
       "blockers": [
-        "人类负责人明确指示本阶段先做 UI-01 样式与口径，历史库与日志查询接口暂不做"
+        "暂缓执行，优先完成 FIX-KINGDEE-01 与现网异常排查"
       ],
-      "updated_at": "2026-11-25T18:55:00+08:00"
+      "updated_at": "2026-11-25T20:45:00+08:00"
     }
   ],
   "task_template": {

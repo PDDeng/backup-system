@@ -29,3 +29,16 @@
 - 阻塞和待确认事项：Codex 休息期间需由 `opencode-worker` 或人类负责人担任 `UI-01` 独立审核人，作者不自审合并；Codex 的 `dad1c0c` 待其恢复或人类负责人确认后推送。
 - 下一项任务及验收标准：`UI-01`（重构 `apps/board/static/` 展示页样式并标明每项数据来源与统计口径，暂不做历史数据库与日志查询接口），详见 `coordination/tasks.json`。
 - 接收人复核与确认时间：`gemini-deputy` 于 2026-11-25T18:55:00+08:00 复核并递增 `state.json` 至 `epoch: 2`。
+
+## 2026-11-25T20:45:00+08:00 主副负责人正式调整（Gemini 升任主负责人，Codex 改为副负责人）
+
+- 时间、交出人、接收人、原因：2026-11-25T20:45:00+08:00，经人类负责人明确决策，由 `gemini-deputy`（Gemini）正式担任主负责人统筹协调，`codex-lead`（Codex / GPT）调整为副负责人，`opencode-worker`（OpenCode）继续担任独立实现与测试审核成员。
+- 仓库提交与分支：`PR #1`（4 条硬规则，`6c25d4b`）与 `PR #2`（`UI-01`，`1f2e40f`）已合入 `main`；本轮角色调整与第二阶段任务分配提交在分支 `ai/gemini/lead-switch-phase2`。
+- 已完成及证据：`UI-01`（`c079e35`）经 OpenCode 独立审核与人类负责人验收，已旁路灰度上线至 `ops253:8100`（容器 `core-backup-board-ui01-20261125`，旧容器 `core-backup-board-acceptance-20261125` 保留秒回滚，账号库已备份至 `/var/lib/core-backup-ops/audit-20261125/board-before-ui01-20261125.dump`），生产浏览器 1920×1080 实测 0 报错/0 CSP 违规。
+- 正在运行的任务、主机、进程或 systemd 单元：`ops253` 上 `core-backup-board-feed.timer`、`backup-board-access.service` 均为 `active`；Oracle46 每日定时任务 `CoreOracle46-Daily` 已启用，计划于 `2026-11-26T00:00:00+08:00` 首跑。
+- 不可重复执行的操作：不得在未核对生产实时状态前重跑任何长耗时备份或清理任务；不得盲目覆盖 `/opt/backup-board/` 或重跑旧 `install.sh`；不得提交本机私有路径或凭证到公开仓库。
+- 未提交改动及所属人：Codex 工作区干净，但本地 `main` 曾存在未推送提交 `dad1c0c`（私有配置占位脱敏），本分支已将公开模板 `config/ai-team.example.json` 同步脱敏为 `LOCAL_ONLY`，Codex 恢复后请先 `git pull --rebase origin main`。
+- 生产授权范围、原值和回滚条件：本阶段任务 `FIX-KINGDEE-01` 与 `OPS-AUDIT-01` 均为 `production_change: false`（仅仓库代码、本地测试与只读排查），任何生产改动须另获人类负责人确认。
+- 阻塞和待确认事项：Codex 休息中，恢复后按 `OPS-AUDIT-01` 接入；OpenCode 已分配 `FIX-KINGDEE-01`（锁定 `components/kingdee/`、`tests/`，与 Codex 路径完全隔离）。
+- 下一项任务及验收标准：详见 `coordination/tasks.json` 中的 `FIX-KINGDEE-01`（OpenCode）与 `OPS-AUDIT-01`（Codex），`DATA-01` 继续暂缓。
+- 接收人复核与确认时间：`gemini-deputy` 于 2026-11-25T20:45:00+08:00 复核并递增 `state.json` 至 `epoch: 3`。

@@ -5,8 +5,8 @@
     "mode": "manual",
     "repository": "https://github.com/PDDeng/backup-system",
     "base_branch": "main",
-    "human_owner": "",
-    "human_contact": "",
+    "human_owner": "PROJECT_OWNER",
+    "human_contact": "LOCAL_ONLY",
     "task_file": "coordination/tasks.json",
     "handoff_file": "coordination/HANDOFF.md",
     "state_file": "coordination/state.json",
@@ -17,44 +17,69 @@
     "scheduler_command": null
   },
   "leadership": {
-    "primary": "codex-lead",
-    "deputy": "gemini-deputy",
-    "initial_active_leader": "codex-lead",
-    "takeover_reasons": ["explicit_handoff", "quota_exhausted", "unavailable_confirmed_by_human"],
+    "primary": "gemini-deputy",
+    "deputy": "codex-lead",
+    "initial_active_leader": "gemini-deputy",
+    "takeover_reasons": [
+      "explicit_handoff",
+      "quota_exhausted",
+      "unavailable_confirmed_by_human"
+    ],
     "timeout_alone_allows_takeover": false,
     "return_policy": "explicit_handoff_after_current_changes_are_recorded",
     "single_production_writer": true
   },
   "agents": [
     {
-      "id": "codex-lead",
-      "name": "Codex",
-      "enabled": true,
-      "role": "primary",
-      "tool": "Codex",
-      "model": "GPT-6.1 sol",
-      "contact_or_session": "填写聊天或会话位置",
-      "workspace": "G:/Project/Codex/WG1/backup-system",
-      "branch_prefix": "ai/codex/",
-      "skills": ["architecture", "integration", "review"],
-      "allowed_paths": ["*"],
-      "max_concurrent_tasks": 1,
-      "adapter": {"type": "manual", "command": null, "credential_env": null}
-    },
-    {
       "id": "gemini-deputy",
       "name": "Gemini",
       "enabled": true,
-      "role": "deputy",
+      "role": "primary",
       "tool": "Antigravity",
       "model": "Gemini 4 Neon High",
-      "contact_or_session": "Antigravity conversation://e3689033-d2db-4386-a8bc-2de748633173 (backup-system 副负责人)",
-      "workspace": "G:/ai-agent/gemini/backup-system",
+      "contact_or_session": "LOCAL_ONLY",
+      "workspace": "LOCAL_ONLY",
       "branch_prefix": "ai/gemini/",
-      "skills": ["planning", "frontend", "review"],
-      "allowed_paths": ["*"],
+      "skills": [
+        "coordination",
+        "planning",
+        "frontend",
+        "review"
+      ],
+      "allowed_paths": [
+        "*"
+      ],
       "max_concurrent_tasks": 1,
-      "adapter": {"type": "manual", "command": null, "credential_env": null}
+      "adapter": {
+        "type": "manual",
+        "command": null,
+        "credential_env": null
+      }
+    },
+    {
+      "id": "codex-lead",
+      "name": "Codex",
+      "enabled": true,
+      "role": "deputy",
+      "tool": "Codex",
+      "model": "GPT-6.1 sol",
+      "contact_or_session": "LOCAL_ONLY",
+      "workspace": "LOCAL_ONLY",
+      "branch_prefix": "ai/codex/",
+      "skills": [
+        "architecture",
+        "integration",
+        "review"
+      ],
+      "allowed_paths": [
+        "*"
+      ],
+      "max_concurrent_tasks": 1,
+      "adapter": {
+        "type": "manual",
+        "command": null,
+        "credential_env": null
+      }
     },
     {
       "id": "opencode-worker",
@@ -65,13 +90,24 @@
       "model": "claude haiku 5.5",
       "model_source": "user_provided_display_name",
       "provider_model_id": null,
-      "contact_or_session": "填写会话位置",
-      "workspace": "G:/ai-agent/zcode/backup-system",
+      "contact_or_session": "LOCAL_ONLY",
+      "workspace": "LOCAL_ONLY",
       "branch_prefix": "ai/opencode/",
-      "skills": ["tests", "backend"],
-      "allowed_paths": ["platform/", "tests/"],
+      "skills": [
+        "tests",
+        "backend"
+      ],
+      "allowed_paths": [
+        "components/kingdee/",
+        "platform/",
+        "tests/"
+      ],
       "max_concurrent_tasks": 1,
-      "adapter": {"type": "manual", "command": null, "credential_env": null}
+      "adapter": {
+        "type": "manual",
+        "command": null,
+        "credential_env": null
+      }
     }
   ],
   "quality": {
@@ -86,6 +122,12 @@
     "require_current_production_version_check": true,
     "test_failure_policy": "block_merge",
     "production_change_policy": "existing_authorization_scope_only_otherwise_human_approval",
-    "prohibited": ["delete_backup_data", "commit_secrets", "fabricate_success", "bypass_authentication", "restart_business_without_authorization"]
+    "prohibited": [
+      "delete_backup_data",
+      "commit_secrets",
+      "fabricate_success",
+      "bypass_authentication",
+      "restart_business_without_authorization"
+    ]
   }
 }

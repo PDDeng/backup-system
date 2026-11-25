@@ -1,6 +1,6 @@
 # AI 协作：一主一副，可增减员工
 
-主负责人暂定 Codex，副负责人 Gemini。主负责人可工作时统一分配任务；主负责人额度不足或明确交接时，Gemini 按相同规则接管。
+主负责人现调整为 Gemini（`gemini-deputy`，Antigravity），副负责人调整为 Codex（`codex-lead`，GPT）。主负责人统一统筹、拆解任务与合并协调；主负责人额度不足或明确交接时，副负责人 Codex 按相同规则接管。
 
 已登记员工 OpenCode（id：opencode-worker），启用参与任务分配，主要负责后端与测试，允许修改 platform/ 和 tests/。模型显示名称按用户提供记录为 claude haiku 5.5；实际调用的 provider_model_id 尚未填写，需以 OpenCode 中可用模型的准确标识为准。启用登记不表示已建立工具连接；会话入口和独立工作目录仍需填写。
 

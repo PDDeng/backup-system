@@ -1,6 +1,6 @@
 # 项目协作规则
 
-团队角色与接管流程见 config/ai-team.example.json 和 docs/AI协作说明.md。默认主负责人 Codex、副负责人 Gemini；当前采用手工交接，不视为已启用自动调度。
+团队角色与接管流程见 config/ai-team.example.json 和 docs/AI协作说明.md。当前主负责人 Gemini（Antigravity）、副负责人 Codex（GPT）、后端与测试员工 OpenCode；采用手工交接与本机共享消息板/GitHub PR 协同，不视为已启用自动调度。
 
 - 生产环境谨慎操作；不删除备份，不擅自重启业务、修改定时任务、放宽防火墙或认证策略。
 - 本仓库提交不触发生产部署。生产变更由统一负责人核对版本、验证并执行。

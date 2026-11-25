@@ -1,13 +1,13 @@
 {
   "active_leader": "gemini-deputy",
-  "epoch": 2,
+  "epoch": 3,
   "status": "manual_coordination",
-  "last_heartbeat_at": "2026-11-25T18:55:00+08:00",
+  "last_heartbeat_at": "2026-11-25T20:45:00+08:00",
   "handoff_from": "codex-lead",
   "handoff_to": "gemini-deputy",
   "handoff_reason": "explicit_handoff",
-  "handoff_commit": "5bcb5b5",
+  "handoff_commit": "1f2e40f",
   "acknowledged_by": "gemini-deputy",
-  "production_writer": null,
-  "note": "Codex 休息，由人类负责人确认交接给 Gemini（gemini-deputy）临时协调；未连接外部自动调度器，不构成生产变更锁。本次阶段不触碰生产备份任务。"
+  "production_writer": "gemini-deputy",
+  "note": "人类负责人于 2026-11-25 明确调整由 Gemini（gemini-deputy）担任主负责人统筹协调，Codex（codex-lead）改为副负责人，OpenCode（opencode-worker）负责独立实现与测试审核；UI-01 已灰度上线至 ops253:8100 并合入 main。"
 }
