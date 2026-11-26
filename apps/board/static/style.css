@@ -1000,6 +1000,12 @@ dialog { color: var(--ink); font: inherit; }
 }
 .modal-dialog textarea { min-height: 68px; resize: vertical; }
 .dialogactions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.md5-summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 12px; }
+.md5-count { font-size: 13px; color: #2b4766; font-weight: 600; margin-right: 6px; }
+.md5-scroll { overflow-x: auto; max-height: 60vh; }
+.md5-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.md5-table th, .md5-table td { padding: 8px 10px; border-bottom: 1px solid #e3ebf5; text-align: left; vertical-align: top; }
+.md5-table small { display: block; color: #5b6f86; margin-top: 2px; }
 
 .userform { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
 .userform input, .userform select { width: auto; flex: 1 1 160px; margin-top: 0; }

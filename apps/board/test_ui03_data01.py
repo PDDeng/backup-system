@@ -140,11 +140,13 @@ class FeedExtrasTests(unittest.TestCase):
             # Valid receipt on 2026-11-24 and 2026-11-25 for asset A; only .partial on 2026-11-25 for asset B
             a_d1 = m243 / "asset_a" / "2026-11-24" / "20261124T010000-1"
             a_d1.mkdir(parents=True)
-            (a_d1 / "backup-result.json").write_text(json.dumps({"Status": "success", "Date": "2026-11-24"}), encoding="utf-8")
+            (a_d1 / "data.bin").write_bytes(b"abc")
+            (a_d1 / "backup-result.json").write_text(json.dumps({"Status": "success", "Date": "2026-11-24", "files": {"data.bin": {"size": 3}}}), encoding="utf-8")
 
             a_d2 = m243 / "asset_a" / "2026-11-25" / "20261125T010000-1"
             a_d2.mkdir(parents=True)
-            (a_d2 / "backup-result.json").write_text(json.dumps({"Status": "success", "Date": "2026-11-25"}), encoding="utf-8")
+            (a_d2 / "data.bin").write_bytes(b"abc")
+            (a_d2 / "backup-result.json").write_text(json.dumps({"Status": "success", "Date": "2026-11-25", "files": {"data.bin": {"size": 3}}}), encoding="utf-8")
 
             b_partial = m240 / "asset_b" / "2026-11-25" / ".20261125T010000.partial"
             b_partial.mkdir(parents=True)
@@ -208,9 +210,10 @@ class FeedExtrasTests(unittest.TestCase):
             self.assertEqual(day24["source"], "nas_receipts")
             self.assertEqual(day24["delivered"], 1)
             self.assertEqual(day24["rate"], 50.0)
-            # Earlier day before any receipts must show 0 delivered (not fabricated!)
-            self.assertEqual(day20["delivered"], 0)
-            self.assertEqual(day20["rate"], 0.0)
+            # Earlier day before any real evidence must be unknown, never a fabricated 0%
+            self.assertEqual(day20["source"], "before_evidence")
+            self.assertIsNone(day20["delivered"])
+            self.assertIsNone(day20["rate"])
 
 
 if __name__ == "__main__":

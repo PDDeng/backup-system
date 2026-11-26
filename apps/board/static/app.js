@@ -123,7 +123,7 @@ function deriveColumns(boardData) {
 
 function stateBadgeInfo(asset) {
   if (asset.state === 'protected') return { text: '近期副本齐全', cls: 'good', ic: 'ic-check-circle' };
-  if (asset.state === 'pending_verification') return { text: '已到位 · 待MD5', cls: 'warn', ic: 'ic-clock' };
+  if (asset.state === 'pending_verification') return { text: '已备份', cls: 'good', ic: 'ic-check-circle' };
   const noTargets = (asset.issues || []).some(s => s.includes('目标尚未接入'));
   if (noTargets) return { text: '目标尚未接入', cls: 'warn', ic: 'ic-warning-circle' };
   return { text: '需要关注', cls: 'bad', ic: 'ic-warning-circle' };
@@ -275,14 +275,12 @@ function renderDailySummary(s) {
   const total = s.total || 0;
   const delivered = s.delivered || 0;
   const attention = s.attention || 0;
-  const pending = s.pending_verification || 0;
-  const rate = total > 0 ? ((delivered / total) * 100).toFixed(1) + '%' : '—';
+  const restored = s.restore_passed || 0;
   const items = [
-    ['纳管资产', String(total)],
-    ['近期到位', String(delivered)],
-    ['异常/失败', String(attention)],
-    ['待 MD5 核验', String(pending)],
-    ['到位成功率', rate]
+    ['需备份', String(total)],
+    ['已备份', String(delivered)],
+    ['失败待处理', String(attention)],
+    ['恢复通过', String(restored)]
   ];
   dl.replaceChildren();
   for (const [label, val] of items) {
@@ -301,7 +299,7 @@ function renderKpis(s) {
   const defs = [
     {
       filter: 'all',
-      label: '纳管研发资产',
+      label: '需备份（纳管资产）',
       value: s.total,
       ic: 'ic-stack',
       def: '来源: snapshot.json 资产清单 · 口径: 全部纳管核心资产',
@@ -310,16 +308,16 @@ function renderKpis(s) {
     },
     {
       filter: 'delivered',
-      label: '近期副本到位',
+      label: '已备份',
       value: s.delivered,
       ic: 'ic-check-circle',
-      def: '来源: copies/transfers · 口径: 有效期内已到位（含待 MD5）',
-      extraNote: { label: '到位占比', val: ratio, title: '分母为纳管研发资产总数 (' + s.total + ' 项)' },
-      md5Count: s.pending_verification || 0
+      def: '来源: copies/transfers · 口径: 有效记录且无报错即已备份（待 MD5 不在此计）',
+      extraNote: { label: '备份占比', val: ratio, title: '分母为需备份资产总数 (' + s.total + ' 项)' },
+      md5Count: 0
     },
     {
       filter: 'attention',
-      label: '异常待关注',
+      label: '失败待处理',
       value: s.attention,
       ic: 'ic-warning',
       def: '来源: model.project 校验规则 · 口径: 缺副本/超期/连接或批次异常',
@@ -328,7 +326,7 @@ function renderKpis(s) {
     },
     {
       filter: 'restored',
-      label: '恢复验证通过',
+      label: '恢复通过',
       value: s.restore_passed,
       ic: 'ic-shield-check',
       def: '来源: snapshot.json restore · 口径: 仅计原生恢复 passed',
@@ -356,9 +354,6 @@ function renderKpis(s) {
     main.append(node('span', item.label, 'metric-label'));
     const valRow = node('span', undefined, 'metric-value');
     valRow.append(node('strong', String(item.value)), node('small', '项'));
-    if (item.md5Count > 0) {
-      valRow.append(node('span', item.md5Count + ' 项待 MD5', 'md5-note'));
-    }
     main.append(valRow);
     top.append(disc, main);
 
@@ -877,24 +872,10 @@ function renderAssets() {
       };
 
       const line = node('span', undefined, 'copy-line');
-      if (!copy) {
-        cellBtn.classList.add('neutral-icon');
-        line.append(icon('ic-minus-circle'), '—');
-        cellBtn.append(line, node('small', '未配置'));
-      } else if (copy.ok) {
-        cellBtn.classList.add('good-icon');
-        line.append(icon('ic-check-circle'), shortDate(copy.date));
-        const sub = String(copy.verification || '').startsWith('md5_verified') ? 'MD5已复核' : '已到位';
-        cellBtn.append(line, node('small', sub));
-      } else if (copy.pending_md5) {
-        cellBtn.classList.add('warn-icon');
-        line.append(icon('ic-clock'), shortDate(copy.date));
-        cellBtn.append(line, node('small', '待 MD5'));
-      } else {
-        cellBtn.classList.add('bad-icon');
-        line.append(icon('ic-warning-circle'), copy.date ? shortDate(copy.date) : '—');
-        cellBtn.append(line, node('small', copy.note === '记录过期' ? '记录过期' : '无有效记录'));
-      }
+      const view = MatrixStatus.cellView(copy);
+      cellBtn.classList.add(view.cls);
+      line.append(icon(view.icon), view.date ? shortDate(view.date) : '—');
+      cellBtn.append(line, node('small', view.sub));
       td.append(cellBtn);
       tr.append(td);
     }
@@ -921,6 +902,51 @@ function renderAssets() {
 
     tbody.append(tr);
   });
+}
+
+function openMd5Dialog() {
+  if (!data) return;
+  renderMd5Dialog();
+  $('md5dialog').showModal();
+}
+
+function renderMd5Dialog() {
+  const targetIds = deriveColumns(data);
+  const assets = data.assets || [];
+  const sum = MatrixStatus.md5Summary(assets, targetIds);
+  const summary = $('md5-summary');
+  summary.replaceChildren(
+    node('span', '资产 ' + assets.length + ' 项 · 三端格子 ' + sum.total + ' 个', 'md5-count'),
+    node('span', '已核验 ' + sum.verified, 'badge good'),
+    node('span', '未执行 ' + sum.pending, 'badge neutral'),
+    node('span', '无有效记录 ' + sum.missing, 'badge bad')
+  );
+
+  const head = $('md5-head');
+  head.replaceChildren();
+  const hr = node('tr');
+  hr.append(node('th', '资产'));
+  for (const tid of targetIds) hr.append(node('th', targetLabel(tid, true)));
+  head.append(hr);
+
+  const body = $('md5-body');
+  body.replaceChildren();
+  for (const a of assets) {
+    const tr = node('tr');
+    const nameTd = node('td');
+    nameTd.append(node('b', a.name || a.id), node('small', a.host || 'IP 未采集'));
+    tr.append(nameTd);
+    for (const tid of targetIds) {
+      const copy = (a.copies || []).find(c => c.target === tid);
+      const v = MatrixStatus.md5View(copy);
+      const td = node('td');
+      const cls = v.state === 'verified' ? 'good' : (v.state === 'pending' ? 'neutral' : 'bad');
+      td.append(node('span', v.label, 'badge ' + cls));
+      td.append(node('small', v.state === 'verified' ? '核验时间 ' + v.time : '核验时间 —'));
+      tr.append(td);
+    }
+    body.append(tr);
+  }
 }
 
 function openDrawer(asset, targetId) {
@@ -1325,6 +1351,9 @@ $('okglossary').onclick = () => $('glossarydialog').close();
 
 $('closeusers').onclick = () => $('usersdialog').close();
 if ($('webhook-btn')) $('webhook-btn').onclick = openWebhookDialog;
+if ($('md5-btn')) $('md5-btn').onclick = openMd5Dialog;
+if ($('closemd5')) $('closemd5').onclick = () => $('md5dialog').close();
+if ($('okmd5')) $('okmd5').onclick = () => $('md5dialog').close();
 if ($('closewebhook')) $('closewebhook').onclick = () => $('webhookdialog').close();
 if ($('cancelwebhook')) $('cancelwebhook').onclick = () => $('webhookdialog').close();
 if ($('webhookform')) {

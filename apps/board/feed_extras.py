@@ -45,8 +45,42 @@ def _read_small_json(path: Path):
         return None
 
 
+def _declared_payload(receipt: dict):
+    """Return [(relative_path_parts, size)] declared by a receipt, or None when it declares no payload."""
+    entries = []
+    files = receipt.get("files")
+    if isinstance(files, dict):
+        items = [(name, meta.get("size", meta.get("bytes")) if isinstance(meta, dict) else None) for name, meta in files.items()]
+    elif isinstance(files, list):
+        items = [(f.get("name", f.get("Name")), f.get("bytes", f.get("size", f.get("Bytes")))) for f in files if isinstance(f, dict)]
+    else:
+        items = [(f.get("Name"), f.get("Bytes")) for f in (receipt.get("Files") or []) if isinstance(f, dict)]
+    for name, size in items:
+        if not isinstance(name, str) or type(size) is not int or size < 0:
+            return None
+        norm = name.replace("\\", "/")
+        parts = norm.split("/")
+        if (norm.startswith("/") or ":" in name or "\x00" in name
+                or any(p in ("", ".", "..") for p in parts)):
+            return None
+        entries.append((parts, size))
+    return entries or None
+
+
+def _payload_present(folder: Path, payload) -> bool:
+    """Every declared payload file must exist as a regular non-link file with the declared size."""
+    for parts, size in payload:
+        p = folder.joinpath(*parts)
+        try:
+            if p.is_symlink() or not p.is_file() or p.stat().st_size != size:
+                return False
+        except OSError:
+            return False
+    return True
+
+
 def _dir_has_valid_receipt(day_dir: Path) -> bool:
-    """Return True iff day_dir (date folder or a non-partial run subfolder) has a valid non-failed receipt."""
+    """True iff day_dir (or a non-partial run subfolder) holds a non-failed receipt whose declared payload is all present."""
     if day_dir.is_symlink() or not day_dir.is_dir() or ".partial" in day_dir.name:
         return False
 
@@ -68,7 +102,11 @@ def _dir_has_valid_receipt(day_dir: Path) -> bool:
             status = str(r.get("Status", r.get("status", ""))).lower()
             if status in ("failed", "failure", "error"):
                 continue
-            return True
+            payload = _declared_payload(r)
+            if payload is None:
+                continue
+            if _payload_present(folder, payload):
+                return True
     return False
 
 
@@ -198,9 +236,36 @@ def build_history_7d(
     today_summary = (projected_today or {}).get("summary") or {}
     days_out = []
 
+    # Earliest real evidence on any mounted NAS or in a persisted live snapshot. Earlier days are unknown, not zero.
+    evidence_dates = set(saved_live)
+    for per_target in asset_target_dates.values():
+        for valid_set in per_target.values():
+            evidence_dates.update(valid_set)
+    earliest = min(evidence_dates) if evidence_dates else None
+
+    # A snapshot that is stale, from another day, or in the future cannot describe today.
+    snap_ok = True
+    try:
+        snap_ts = dt.datetime.fromisoformat(str(snapshot.get("sampled")))
+        if snap_ts.tzinfo is None:
+            snap_ok = False
+        else:
+            age = (ref - snap_ts.astimezone(BJ_TZ)).total_seconds()
+            snap_ok = -300 <= age <= 1800
+    except (TypeError, ValueError):
+        snap_ok = False
+    if projected_today and projected_today.get("stale"):
+        snap_ok = False
+
     for d_iso in dates:
         label = d_iso[5:]  # MM-DD
         if d_iso == today_iso:
+            if not snap_ok:
+                days_out.append({
+                    "date": d_iso, "label": label, "total": None, "delivered": None, "attention": None,
+                    "rate": None, "source": "stale_snapshot",
+                })
+                continue
             delivered = int(today_summary.get("delivered", 0))
             total = int(today_summary.get("total", total_assets))
             attention = int(today_summary.get("attention", max(0, total - delivered)))
@@ -220,6 +285,13 @@ def build_history_7d(
             item = dict(saved_live[d_iso])
             item["label"] = label
             days_out.append(item)
+            continue
+
+        if earliest is None or d_iso < earliest:
+            days_out.append({
+                "date": d_iso, "label": label, "total": total_assets, "delivered": None, "attention": None,
+                "rate": None, "source": "before_evidence",
+            })
             continue
 
         # Reconstruct from real NAS published receipts using the same per-asset max_age_days window

@@ -114,6 +114,7 @@
                 <span>导出报告</span>
               </button>
               <button class="button ghost" id="webhook-btn" type="button" hidden title="配置每天 08:50 企业微信备份日报推送地址">推送设置</button>
+              <button class="button ghost" id="md5-btn" type="button" title="查看 14 项资产三端 MD5 独立复核状态与核验时间">MD5 核验</button>
               <button class="button ghost" id="passwd" type="button">改密</button>
               <button class="button ghost" id="manage" type="button" hidden>账号</button>
               <button class="button ghost" id="logout" type="button">退出</button>
@@ -162,9 +163,8 @@
                   <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-funnel-simple"></use></svg>
                   <select id="filter" aria-label="筛选资产保护状态">
                     <option value="all">全部状态</option>
-                    <option value="delivered">近期副本到位（含待MD5）</option>
+                    <option value="delivered">已备份（已到位）</option>
                     <option value="protected">近期副本齐全（已核验）</option>
-                    <option value="pending_verification">已到位 · 待 MD5 复核</option>
                     <option value="attention">仅看异常待关注</option>
                     <option value="restored">原生恢复通过</option>
                   </select>
@@ -292,7 +292,7 @@
             </article>
             <article class="prov-card">
               <h3>3. 副本到位、待 MD5 与异常口径</h3>
-              <p>逐资产核对每个期望存储目标，副本日期须落在有效窗口内（默认 <code>0–2 天</code>，Harbor <code>0–8 天</code>，或资产 <code>max_age_days</code>，拒绝未来日期）：<code>receipt_found</code> / <code>files_md5_rechecked</code> 计为<strong>近期副本齐全</strong>；<code>files_size_rechecked</code> 计为<strong>已到位·待 MD5</strong>（计入“近期副本到位”，同时单列待 MD5 数量）；其余缺记录、超期、连接异常、目标未接入或批次不一致计入<strong>异常待关注</strong>。</p>
+              <p>逐资产核对每个期望存储目标，副本日期须落在有效窗口内（默认 <code>0–2 天</code>，Harbor <code>0–8 天</code>，或资产 <code>max_age_days</code>，拒绝未来日期）：<code>receipt_found</code> / <code>files_md5_rechecked</code> 计为<strong>近期副本齐全</strong>；<code>files_size_rechecked</code> 计为<strong>已到位·待 MD5</strong>（计入“近期副本到位”，待 MD5 不在矩阵中单列，仅在「MD5 核验」弹窗展示）；其余缺记录、超期、连接异常、目标未接入或批次不一致计入<strong>异常待关注</strong>。</p>
             </article>
             <article class="prov-card">
               <h3>4. 五项验证严格分离</h3>
@@ -347,7 +347,7 @@
         <tbody>
           <tr><td><strong>纳管核心资产</strong></td><td><code>/api/board → summary.total</code></td><td><code>snapshot.json</code> 中 <code>assets</code> 清单总条目数。</td></tr>
           <tr><td><strong>近期副本到位 &amp; 到位占比</strong></td><td><code>summary.delivered / summary.total</code></td><td>资产所有期望目标均在有效窗口内有完成记录或大小核对记录（含待 MD5 复核资产），且无异常项；占比分母固定为纳管总数。</td></tr>
-          <tr><td><strong>已到位 · 待 MD5</strong></td><td><code>summary.pending_verification</code></td><td>至少 1 个目标为 <code>files_size_rechecked</code>（大小已核对、MD5 待复核）且无其他异常。</td></tr>
+          <tr><td><strong>已备份（含待 MD5）</strong></td><td><code>summary.pending_verification</code></td><td>至少 1 个目标为 <code>files_size_rechecked</code>（大小已核对、MD5 待复核）且无其他异常。</td></tr>
           <tr><td><strong>异常待关注</strong></td><td><code>summary.attention</code></td><td>命中任一异常：缺有效完成记录、副本日期超期或晚于当前日、未配置目标、执行批次与副本批次不一致、源端连接检查非 <code>ok</code>。</td></tr>
           <tr><td><strong>恢复验证通过</strong></td><td><code>summary.restore_passed</code></td><td>仅统计 <code>restore.status === "passed"</code> 的原生技术恢复结果；不与副本到位或人工验收混算。</td></tr>
           <tr><td><strong>人工业务验收</strong></td><td>PostgreSQL <code>acceptance_events</code></td><td>独立追加审计表，由管理员登记；列表标签仅匹配当前已到位 <code>backup_run</code>，旧批次验收单独标示为历史记录。</td></tr>
@@ -357,6 +357,24 @@
       </table>
     </div>
     <div class="dialogactions"><button class="button primary" id="okglossary" type="button">知道了</button></div>
+  </dialog>
+
+  <dialog id="md5dialog" class="modal-dialog" aria-labelledby="md5-title">
+    <div class="dialog-head">
+      <div>
+        <h2 id="md5-title">MD5 独立核验</h2>
+        <p>逐项查看每个资产三端副本的 MD5 独立复核状态。仅展示已记录的核验结果；未执行的不视为已核验，不造假。</p>
+      </div>
+      <button class="button ghost" id="closemd5" type="button" aria-label="关闭">关闭</button>
+    </div>
+    <div class="md5-summary" id="md5-summary"></div>
+    <div class="md5-scroll">
+      <table class="md5-table">
+        <thead id="md5-head"></thead>
+        <tbody id="md5-body"></tbody>
+      </table>
+    </div>
+    <div class="dialogactions"><button class="button primary" id="okmd5" type="button">知道了</button></div>
   </dialog>
 
   <dialog id="passworddialog" class="modal-dialog modal-sm">
@@ -458,6 +476,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <script src="/static/acceptance-view.js"></script>
+  <script src="/static/matrix-status.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
