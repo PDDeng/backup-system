@@ -12,12 +12,12 @@ def normalize(asset, sampled):
     copies={c['target']:c for c in asset.get('copies',[])}
     for t in asset.get('transfers',[]):
         old=copies.get(t.get('target'),{})
-        if t.get('status')=='files_size_rechecked' and t.get('date','')>=old.get('date',''):
+        if t.get('status') in ('files_size_rechecked','files_md5_rechecked') and t.get('date','')>=old.get('date',''):
             copies[t['target']]=t
     for tid in asset.get('targets',list(copies)):
         c=copies.get(tid,{'target':tid,'status':'unknown'})
         limit=asset.get('max_age_days',8 if asset.get('type')=='Harbor' else 2)
-        receipt=c.get('status')=='receipt_found'
+        receipt=c.get('status') in ('receipt_found','files_md5_rechecked')
         pending=c.get('status')=='files_size_rechecked'
         age=c.get('age_days')
         try:age=(dt.datetime.fromisoformat(sampled).date()-dt.date.fromisoformat(c['date'])).days
