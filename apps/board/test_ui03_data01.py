@@ -84,7 +84,8 @@ class WebhookSettingsTests(unittest.TestCase):
             self.assertTrue(res["ok"])
             self.assertEqual(captured["url"], url)
             self.assertIn("Nexus 51", captured["body"]["text"]["content"])
-            self.assertIn("1/2", captured["body"]["text"]["content"])
+            self.assertIn("已备份数量：1 项", captured["body"]["text"]["content"])
+        self.assertNotIn("MD5", captured["body"]["text"]["content"])
             after = read_settings(cfg)
             self.assertTrue(after["last_test"]["ok"])
 
