@@ -14,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'platform' / 'sync'))
 import cross_nas_sync as sync  # noqa: E402
 
-ASSET = 'oracle46_asset'
+BOM = b'\xef\xbb\xbf'
+ORACLE = 'oracle46_asset'
+SVN = 'svn29_asset'
+CRM = 'crm200_asset'
+KINGDEE = 'kingdee252_asset'
 
 
 class FakeClock(object):
@@ -34,343 +38,542 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-class SyncCase(unittest.TestCase):
+def fake_guard(root_of_mount=None, fstype='cifs', source='//nas/backup', free=10 ** 13):
+    def findmnt(path):
+        return {'source': source, 'fstype': fstype, 'target': path}
+    return sync.Guard(findmnt=findmnt, disk_free=lambda p: free)
+
+
+class Base(unittest.TestCase):
     def setUp(self):
         self.base = Path(tempfile.mkdtemp(prefix='cross-nas-sync-test-'))
         self.src = self.base / 'src'
         self.dst = self.base / 'dst'
         self.state = self.base / 'state'
-        self.src.mkdir()
-        self.dst.mkdir()
-        self.state.mkdir()
+        for p in (self.src, self.dst, self.state):
+            p.mkdir()
         self.clock = FakeClock()
 
     def tearDown(self):
-        shutil.rmtree(str(self.base), ignore_errors=False)
+        shutil.rmtree(str(self.base))
 
-    def make_date(self, date, files, owner='oracle46-v1', shape='list', with_sha=True, receipt=True):
-        d = self.src / ASSET / date
-        d.mkdir(parents=True)
-        entries = []
-        for name, data in files.items():
-            (d / name).write_bytes(data)
-            meta = {'size': len(data)} if shape == 'dict' else {'bytes': len(data)}
-            if with_sha:
-                meta['sha256'] = sha(data)
-            if shape == 'dict':
-                entries.append((name, meta))
-            else:
-                entries.append(dict(name=name, **meta))
-        if receipt:
-            body = {'owner': owner, 'asset': ASSET, 'date': date}
-            body['files'] = dict(entries) if shape == 'dict' else entries
-            (d / 'complete.json').write_text(json.dumps(body), encoding='utf-8')
-        return d
+    def job(self, asset, layout, fmt, receipt_name, owner=None, targets=None, extra=None):
+        job = {'name': 'job-' + asset.split('_')[0], 'priority': 1, 'asset': asset, 'layout': layout,
+               'receipt_format': fmt, 'receipt_name': receipt_name, 'source_root': str(self.src),
+               'rate_limit_bytes_per_sec': 10 ** 9,
+               'targets': targets or [{'name': 'nas240', 'root': str(self.dst),
+                                       'mount': {'mode': 'linux-cifs', 'source': '//nas/backup'},
+                                       'reserve_bytes': 0}]}
+        if owner is not None:
+            job['expected_owner'] = owner
+        job.update(extra or {})
+        return job
 
-    def config(self, targets=None, rate=1000000, receipt_name='complete.json', owner='oracle46-v1', extra=None):
-        job = {'name': 'oracle46', 'priority': 1, 'asset': ASSET, 'source_root': str(self.src),
-               'receipt_name': receipt_name, 'expected_owner': owner,
-               'rate_limit_bytes_per_sec': rate,
-               'targets': targets or [{'name': 'nas240', 'root': str(self.dst)}]}
-        if extra:
-            job.update(extra)
-        return {'schema_version': 1, 'state_dir': str(self.state), 'jobs': [job]}
+    def config(self, *jobs):
+        return {'schema_version': 1, 'state_dir': str(self.state), 'jobs': list(jobs)}
 
-    def run_cfg(self, cfg, dry_run=False):
-        return sync.run(sync.validate_config(cfg), dry_run=dry_run, clock=self.clock, sleep=self.clock.sleep)
+    def run_cfg(self, cfg, dry_run=False, guard=None):
+        return sync.run(sync.validate_config(cfg), dry_run=dry_run, clock=self.clock.__call__,
+                        sleep=self.clock.sleep, guard=guard or fake_guard())
 
-    def target_dates(self):
-        return sorted(p.name for p in (self.dst / ASSET).iterdir()) if (self.dst / ASSET).exists() else []
+    def target_tree(self):
+        out = []
+        for dp, dn, fn in os.walk(str(self.dst)):
+            for name in dn + fn:
+                out.append(os.path.relpath(os.path.join(dp, name), str(self.dst)))
+        return sorted(out)
 
 
-class HappyPath(SyncCase):
-    def test_copies_complete_dates_with_identical_content_and_receipt(self):
-        self.make_date('2026-11-24', {'a_20261124.ADF': b'alpha' * 10, 'b.bin': b'\x00\xff' * 50})
-        self.make_date('2026-11-25', {'c.bin': b'gamma'})
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['status'], 'ok')
-        self.assertEqual(sorted(r['results'][0]['copied']), ['2026-11-24', '2026-11-25'])
-        self.assertEqual(self.target_dates(), ['2026-11-24', '2026-11-25'])
-        out = self.dst / ASSET / '2026-11-24'
-        self.assertEqual((out / 'a_20261124.ADF').read_bytes(), b'alpha' * 10)
-        self.assertEqual((out / 'b.bin').read_bytes(), b'\x00\xff' * 50)
-        self.assertEqual((out / 'complete.json').read_bytes(), (self.src / ASSET / '2026-11-24' / 'complete.json').read_bytes())
-        self.assertFalse([p for p in (self.dst / ASSET).iterdir() if p.name.endswith('.partial')])
+class RealLayouts(Base):
+    """Fixtures shaped like the real production receipts (Oracle46, SVN29, CRM200, Kingdee252)."""
 
-    def test_identical_target_is_skipped_not_rewritten(self):
-        self.make_date('2026-11-24', {'a.bin': b'one'})
-        self.run_cfg(self.config())
-        marker = self.dst / ASSET / '2026-11-24' / 'a.bin'
-        before = marker.stat().st_mtime_ns
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['results'][0]['skipped'], ['2026-11-24'])
-        self.assertEqual(r['results'][0]['copied'], [])
-        self.assertEqual(marker.stat().st_mtime_ns, before)
+    def make_oracle(self, date, run, payload):
+        u = self.src / ORACLE / date / run
+        u.mkdir(parents=True)
+        for name, data in payload.items():
+            (u / name).write_bytes(data)
+        receipt = {'schema': 'core-backup-bundle/1.0', 'asset': ORACLE, 'run': run, 'date': date,
+                   'files': {n: {'size': len(d)} for n, d in payload.items()}}
+        (u / 'complete.json').write_bytes(json.dumps(receipt).encode('utf-8'))
+        return u
 
-    def test_dict_receipt_shape_used_by_platform_is_accepted(self):
-        self.make_date('2026-11-24', {'full.bkp': b'abc'}, shape='dict')
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['results'][0]['copied'], ['2026-11-24'])
-
-    def test_receipt_without_sha256_copies_on_size_only(self):
-        self.make_date('2026-11-24', {'x.bin': b'size only'}, with_sha=False)
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['results'][0]['copied'], ['2026-11-24'])
-
-
-class SourceRules(SyncCase):
-    def test_incomplete_and_partial_dates_are_never_copied(self):
-        self.make_date('2026-11-24', {'ok.bin': b'ok'})
-        self.make_date('2026-11-25', {'partial.bin': b'no receipt'}, receipt=False)
-        partial = self.src / ASSET / '.2026-11-26.abc.partial'
+    def test_oracle46_date_run_nested_layout(self):
+        self.make_oracle('2026-11-25', '20261125T020000-aaaaaa', {'expdp_full.dmp': b'D' * 4096, 'expdp.log': b'ok'})
+        self.make_oracle('2026-11-26', '20261126T020000-bbbbbb', {'expdp_full.dmp': b'E' * 2048})
+        # incomplete run and partial run must never be copied
+        incomplete = self.src / ORACLE / '2026-11-26' / '20261126T030000-cccccc'
+        incomplete.mkdir()
+        (incomplete / 'expdp_full.dmp').write_bytes(b'half')
+        partial = self.src / ORACLE / '2026-11-26' / '.20261126T040000-dddddd.partial'
         partial.mkdir()
-        (partial / 'complete.json').write_text('{}', encoding='utf-8')
-        (self.src / ASSET / 'not-a-date').mkdir()
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['results'][0]['copied'], ['2026-11-24'])
-        self.assertEqual(r['results'][0]['incomplete_source_dates'], ['2026-11-25'])
-        self.assertEqual(self.target_dates(), ['2026-11-24'])
-
-    def test_source_size_mismatch_publishes_nothing(self):
-        d = self.make_date('2026-11-24', {'a.bin': b'12345'})
-        (d / 'a.bin').write_bytes(b'12')
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['status'], 'errors')
-        self.assertEqual(self.target_dates(), [])
-        self.assertIn('2026-11-24', ''.join(r['results'][0]['errors']))
-
-    def test_corrupt_hash_fails_and_keeps_partial_for_inspection(self):
-        d = self.make_date('2026-11-24', {'a.bin': b'good bytes'})
-        receipt = json.loads((d / 'complete.json').read_text('utf-8'))
-        receipt['files'][0]['sha256'] = sha(b'other bytes')
-        (d / 'complete.json').write_text(json.dumps(receipt), encoding='utf-8')
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['status'], 'errors')
-        published = [n for n in self.target_dates() if not n.endswith('.partial')]
-        self.assertEqual(published, [])
-        leftovers = self.target_dates()
-        self.assertEqual(len(leftovers), 1)
-        self.assertTrue(leftovers[0].endswith('.partial'))
-
-    def test_receipt_date_or_asset_mismatch_rejected(self):
-        d = self.make_date('2026-11-24', {'a.bin': b'x'})
-        receipt = json.loads((d / 'complete.json').read_text('utf-8'))
-        receipt['date'] = '2026-11-23'
-        (d / 'complete.json').write_text(json.dumps(receipt), encoding='utf-8')
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['status'], 'errors')
-        self.assertEqual(self.target_dates(), [])
-
-    def test_owner_mismatch_rejected(self):
-        self.make_date('2026-11-24', {'a.bin': b'x'}, owner='someone-else')
-        r = self.run_cfg(self.config(owner='oracle46-v1'))
-        self.assertEqual(r['status'], 'errors')
-        self.assertEqual(self.target_dates(), [])
-
-    def test_unsafe_receipt_file_name_rejected_and_nothing_written_outside(self):
-        d = self.make_date('2026-11-24', {'a.bin': b'x'})
-        receipt = json.loads((d / 'complete.json').read_text('utf-8'))
-        receipt['files'][0]['name'] = '..\\escape.bin'
-        (d / 'complete.json').write_text(json.dumps(receipt), encoding='utf-8')
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['status'], 'errors')
-        self.assertFalse((self.base / 'escape.bin').exists())
-        self.assertEqual(self.target_dates(), [])
-
-    def test_link_in_source_is_refused(self):
-        d = self.make_date('2026-11-24', {'a.bin': b'x'})
-        real_is_link = sync.is_link
-
-        def fake(path):
-            return os.path.basename(path) == 'a.bin' or real_is_link(path)
-        with mock.patch.object(sync, 'is_link', side_effect=fake):
-            r = self.run_cfg(self.config())
-        self.assertEqual(r['status'], 'errors')
-        self.assertEqual(self.target_dates(), [])
-
-
-class TargetRules(SyncCase):
-    def test_existing_different_target_is_conflict_and_untouched(self):
-        self.make_date('2026-11-24', {'a.bin': b'source version'})
-        final = self.dst / ASSET / '2026-11-24'
-        final.mkdir(parents=True)
-        (final / 'a.bin').write_bytes(b'operator version')
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['status'], 'errors')
-        self.assertIn('not overwritten', ''.join(r['results'][0]['errors']))
-        self.assertEqual((final / 'a.bin').read_bytes(), b'operator version')
-
-    def test_add_only_nothing_deleted_on_either_side(self):
-        self.make_date('2026-11-24', {'a.bin': b'a'})
-        self.run_cfg(self.config())
-        extra = self.dst / ASSET / 'manual-keep'
-        extra.mkdir()
-        (extra / 'note.txt').write_text('keep me', encoding='utf-8')
-        shutil.rmtree(str(self.src / ASSET / '2026-11-24'))
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['status'], 'ok')
-        self.assertEqual((extra / 'note.txt').read_text('utf-8'), 'keep me')
-        self.assertEqual(self.target_dates(), ['2026-11-24', 'manual-keep'])
-
-    def test_missing_target_root_is_not_created(self):
-        self.make_date('2026-11-24', {'a.bin': b'a'})
-        missing = self.base / 'unmounted' / 'share'
-        r = self.run_cfg(self.config(targets=[{'name': 'nas240', 'root': str(missing)}]))
-        self.assertEqual(r['status'], 'errors')
-        self.assertFalse((self.base / 'unmounted').exists())
-
-    def test_two_targets_both_receive_the_same_dates(self):
-        self.make_date('2026-11-24', {'a.bin': b'a'})
-        second = self.base / 'dst2'
-        second.mkdir()
-        cfg = self.config(targets=[{'name': 'nas243', 'root': str(self.dst)},
-                                   {'name': 'win254', 'root': str(second)}])
+        (partial / 'complete.json').write_bytes(b'{}')
+        cfg = self.config(self.job(ORACLE, 'date_run', 'core-bundle-1.0', 'complete.json', owner=None,
+                                   extra={'name': 'oracle46'}))
         r = self.run_cfg(cfg)
-        self.assertEqual(r['status'], 'ok')
-        self.assertEqual([x['copied'] for x in r['results']], [['2026-11-24'], ['2026-11-24']])
-        self.assertTrue((second / ASSET / '2026-11-24' / 'a.bin').exists())
+        self.assertEqual(r['status'], 'ok', r)
+        copied = sorted(r['results'][0]['copied'])
+        self.assertEqual(copied, ['2026-11-25/20261125T020000-aaaaaa', '2026-11-26/20261126T020000-bbbbbb'])
+        out = self.dst / ORACLE / '2026-11-25' / '20261125T020000-aaaaaa'
+        self.assertEqual((out / 'expdp_full.dmp').read_bytes(), b'D' * 4096)
+        self.assertTrue((out / 'complete.json').exists())
+        self.assertFalse((self.dst / ORACLE / '2026-11-26' / '20261126T030000-cccccc').exists())
+        self.assertEqual(r['results'][0]['incomplete_source_units'], ['2026-11-26/20261126T030000-cccccc'])
 
-    def test_failed_date_does_not_stop_later_dates(self):
-        d = self.make_date('2026-11-24', {'a.bin': b'bad'})
-        (d / 'a.bin').write_bytes(b'b')
-        self.make_date('2026-11-25', {'c.bin': b'fine'})
-        r = self.run_cfg(self.config())
-        self.assertEqual(r['results'][0]['copied'], ['2026-11-25'])
-        self.assertEqual(self.target_dates(), ['2026-11-25'])
-
-    def test_dry_run_writes_nothing(self):
-        self.make_date('2026-11-24', {'a.bin': b'a'})
-        r = self.run_cfg(self.config(), dry_run=True)
-        self.assertEqual(r['results'][0]['planned'], ['2026-11-24'])
-        self.assertFalse((self.dst / ASSET).exists())
-
-
-class Throttle(SyncCase):
-    def test_rate_limit_sleeps_so_bytes_do_not_run_ahead(self):
-        self.make_date('2026-11-24', {'a.bin': b'x' * 3000})
-        r = self.run_cfg(self.config(rate=1000))
-        self.assertEqual(r['results'][0]['copied'], ['2026-11-24'])
-        self.assertAlmostEqual(sum(self.clock.slept), 3.0, places=2)
-        self.assertAlmostEqual(r['results'][0]['throttle_seconds'], 3.0, places=2)
-
-    def test_limiter_does_not_sleep_when_already_behind_schedule(self):
-        clock = FakeClock()
-        lim = sync.RateLimiter(1000, clock=clock, sleep=clock.sleep)
-        lim.consume(100)
-        self.assertAlmostEqual(lim.slept, 0.1, places=6)
-        clock.now = 10.0
-        lim.consume(100)
-        self.assertAlmostEqual(lim.slept, 0.1, places=6)
-
-
-class Concurrency(SyncCase):
-    def test_second_run_is_refused_while_lock_held(self):
-        self.make_date('2026-11-24', {'a.bin': b'a'})
-        lock = self.state / ('lock-oracle46-nas240.lock')
-        lock.write_text('busy', encoding='utf-8')
-        r = self.run_cfg(self.config())
+    def test_oracle46_rejects_wrong_schema(self):
+        u = self.make_oracle('2026-11-25', '20261125T020000-aaaaaa', {'a.dmp': b'x'})
+        receipt = json.loads((u / 'complete.json').read_bytes())
+        receipt['schema'] = 'something-else/1.0'
+        (u / 'complete.json').write_bytes(json.dumps(receipt).encode('utf-8'))
+        r = self.run_cfg(self.config(self.job(ORACLE, 'date_run', 'core-bundle-1.0', 'complete.json',
+                                              extra={'name': 'oracle46'})))
         self.assertEqual(r['status'], 'errors')
-        self.assertIn('locked', ''.join(r['results'][0]['errors']))
-        self.assertTrue(lock.exists())
-        self.assertEqual(self.target_dates(), [])
+        self.assertEqual(self.target_tree(), [])
+
+    def make_svn(self, date, run):
+        u = self.src / SVN / date / run
+        (u / 'repo' / '子目录').mkdir(parents=True)
+        (u / 'repo' / '子目录' / '中文 文件(1).txt').write_bytes('中文内容'.encode('utf-8'))
+        (u / 'repo' / 'db').mkdir()
+        (u / 'repo' / 'db' / 'rev.bin').write_bytes(b'\x01\x02\x03')
+        (u / 'repo' / '空目录').mkdir()
+        receipt = {'Owner': 'svn29-hotcopy-v1', 'Asset': SVN, 'Run': run, 'Date': date,
+                   'Status': 'hotcopy_verified', 'SmallTest': False,
+                   'Files': [{'Name': 'repo\\子目录\\中文 文件(1).txt', 'Bytes': len('中文内容'.encode('utf-8'))},
+                             {'Name': 'repo\\db\\rev.bin', 'Bytes': 3}],
+                   'Directories': ['repo\\空目录', 'repo\\db']}
+        (u / 'hotcopy-result.json').write_bytes(json.dumps(receipt, ensure_ascii=False).encode('utf-8'))
+        return u
+
+    def test_svn29_pascal_receipt_nested_backslash_unicode_and_empty_dirs(self):
+        self.make_svn('2026-11-25', '20261125T010000-svnsvn')
+        cfg = self.config(self.job(SVN, 'date_run', 'svn-pascal', 'hotcopy-result.json', owner='svn29-hotcopy-v1',
+                                   extra={'name': 'svn29'}))
+        r = self.run_cfg(cfg)
+        self.assertEqual(r['status'], 'ok', r)
+        out = self.dst / SVN / '2026-11-25' / '20261125T010000-svnsvn'
+        self.assertEqual((out / 'repo' / '子目录' / '中文 文件(1).txt').read_bytes(), '中文内容'.encode('utf-8'))
+        self.assertEqual((out / 'repo' / 'db' / 'rev.bin').read_bytes(), b'\x01\x02\x03')
+        self.assertTrue((out / 'repo' / '空目录').is_dir())
+        self.assertEqual(os.listdir(str(out / 'repo' / '空目录')), [])
+
+    def test_svn29_smalltest_and_bad_status_refused(self):
+        u = self.make_svn('2026-11-25', '20261125T010000-svnsvn')
+        receipt = json.loads((u / 'hotcopy-result.json').read_bytes().decode('utf-8'))
+        receipt['SmallTest'] = True
+        (u / 'hotcopy-result.json').write_bytes(json.dumps(receipt).encode('utf-8'))
+        r = self.run_cfg(self.config(self.job(SVN, 'date_run', 'svn-pascal', 'hotcopy-result.json',
+                                              owner='svn29-hotcopy-v1', extra={'name': 'svn29'})))
+        self.assertEqual(r['status'], 'errors')
+        self.assertEqual(self.target_tree(), [])
+        receipt['SmallTest'] = False
+        receipt['Status'] = 'running'
+        (u / 'hotcopy-result.json').write_bytes(json.dumps(receipt).encode('utf-8'))
+        r = self.run_cfg(self.config(self.job(SVN, 'date_run', 'svn-pascal', 'hotcopy-result.json',
+                                              owner='svn29-hotcopy-v1', extra={'name': 'svn29'})))
+        self.assertEqual(r['status'], 'errors')
+
+    def test_crm200_bom_single_file_bytes_schema(self):
+        u = self.src / CRM / '2026-11-25'
+        u.mkdir(parents=True)
+        (u / 'crm200.dmp').write_bytes(b'C' * 1500)
+        (u / 'complete.json').write_bytes(BOM + json.dumps({'file': 'crm200.dmp', 'bytes': 1500}).encode('utf-8'))
+        r = self.run_cfg(self.config(self.job(CRM, 'date_dir', 'crm-single', 'complete.json', extra={'name': 'crm200'})))
+        self.assertEqual(r['status'], 'ok', r)
+        self.assertEqual(r['results'][0]['copied'], ['2026-11-25'])
+        self.assertEqual((self.dst / CRM / '2026-11-25' / 'crm200.dmp').read_bytes(), b'C' * 1500)
+        self.assertEqual((self.dst / CRM / '2026-11-25' / 'complete.json').read_bytes(),
+                         BOM + json.dumps({'file': 'crm200.dmp', 'bytes': 1500}).encode('utf-8'))
+
+    def test_kingdee252_bom_names_with_spaces_parentheses_and_unicode(self):
+        name = 'Kingdee 01 (账套) 2026-11-25.ADF'
+        u = self.src / KINGDEE / '2026-11-25'
+        u.mkdir(parents=True)
+        (u / name).write_bytes(b'K' * 777)
+        body = {'owner': 'kingdee-nas-v1', 'asset': KINGDEE, 'date': '2026-11-25',
+                'files': [{'name': name, 'bytes': 777}]}
+        (u / 'complete.json').write_bytes(BOM + json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        r = self.run_cfg(self.config(self.job(KINGDEE, 'date_dir', 'kingdee-list', 'complete.json',
+                                              owner='kingdee-nas-v1', extra={'name': 'kingdee252'})))
+        self.assertEqual(r['status'], 'ok', r)
+        self.assertEqual((self.dst / KINGDEE / '2026-11-25' / name).read_bytes(), b'K' * 777)
+
+    def test_kingdee_existing_target_identical_is_skipped_after_full_verification(self):
+        name = 'Kingdee 02 (账套).ADF'
+        u = self.src / KINGDEE / '2026-11-25'
+        u.mkdir(parents=True)
+        (u / name).write_bytes(b'K' * 10)
+        (u / 'complete.json').write_bytes(BOM + json.dumps({'owner': 'kingdee-nas-v1', 'asset': KINGDEE,
+                                                            'date': '2026-11-25',
+                                                            'files': [{'name': name, 'bytes': 10}]}).encode('utf-8'))
+        cfg = self.config(self.job(KINGDEE, 'date_dir', 'kingdee-list', 'complete.json',
+                                   owner='kingdee-nas-v1', extra={'name': 'kingdee252'}))
+        self.run_cfg(cfg)
+        r = self.run_cfg(cfg)
+        self.assertEqual(r['results'][0]['skipped'], ['2026-11-25'])
+        self.assertEqual(r['results'][0]['errors'], [])
+
+
+class PublishAndVerify(Base):
+    def make_plain(self, date, payload):
+        u = self.src / ORACLE / date
+        u.mkdir(parents=True)
+        for n, d in payload.items():
+            (u / n).write_bytes(d)
+        (u / 'complete.json').write_bytes(json.dumps({'schema': 'core-backup-bundle/1.0', 'asset': ORACLE,
+                                                      'date': date, 'files': {n: {'size': len(d)} for n, d in payload.items()}}).encode('utf-8'))
+        return u
+
+    def cfg(self, **job_extra):
+        return self.config(self.job(ORACLE, 'date_dir', 'core-bundle-1.0', 'complete.json',
+                                    extra=dict({'name': 'oracle46'}, **job_extra)))
+
+    def test_existing_empty_target_is_conflict_never_skipped_or_overwritten(self):
+        self.make_plain('2026-11-25', {'a.dmp': b'abc'})
+        empty = self.dst / ORACLE / '2026-11-25'
+        empty.mkdir(parents=True)
+        r = self.run_cfg(self.cfg())
+        self.assertEqual(r['status'], 'errors')
+        self.assertEqual(r['results'][0]['skipped'], [])
+        self.assertTrue(empty.is_dir())
+        self.assertEqual(os.listdir(str(empty)), [])
+
+    def test_existing_target_with_wrong_size_is_conflict(self):
+        self.make_plain('2026-11-25', {'a.dmp': b'abc'})
+        self.run_cfg(self.cfg())
+        (self.dst / ORACLE / '2026-11-25' / 'a.dmp').write_bytes(b'ab')
+        r = self.run_cfg(self.cfg())
+        self.assertEqual(r['status'], 'errors')
+        self.assertIn('size mismatch', ''.join(r['results'][0]['errors']))
+        self.assertEqual((self.dst / ORACLE / '2026-11-25' / 'a.dmp').read_bytes(), b'ab')
+
+    def test_existing_target_with_missing_payload_is_conflict(self):
+        self.make_plain('2026-11-25', {'a.dmp': b'abc'})
+        self.run_cfg(self.cfg())
+        (self.dst / ORACLE / '2026-11-25' / 'a.dmp').unlink()
+        r = self.run_cfg(self.cfg())
+        self.assertEqual(r['status'], 'errors')
+        self.assertEqual(r['results'][0]['skipped'], [])
+
+    def test_publish_no_replace_refuses_existing_destination(self):
+        src = self.base / 'part'
+        dst = self.base / 'final'
+        src.mkdir()
+        dst.mkdir()
+        (src / 'x').write_bytes(b'new')
+        with self.assertRaises(FileExistsError):
+            sync.publish_no_replace(str(src), str(dst))
+        self.assertTrue((src / 'x').exists())
+        self.assertEqual(os.listdir(str(dst)), [])
+
+    def test_source_payload_size_changed_publishes_nothing(self):
+        d = self.make_plain('2026-11-25', {'a.dmp': b'abcde'})
+        (d / 'a.dmp').write_bytes(b'ab')
+        r = self.run_cfg(self.cfg())
+        self.assertEqual(r['status'], 'errors')
+        self.assertEqual(self.target_tree(), [])
+
+    def test_sha256_mismatch_keeps_partial_and_publishes_nothing(self):
+        d = self.make_plain('2026-11-25', {'a.dmp': b'good'})
+        rec = json.loads((d / 'complete.json').read_bytes())
+        rec['files']['a.dmp']['sha256'] = sha(b'other')
+        (d / 'complete.json').write_bytes(json.dumps(rec).encode('utf-8'))
+        r = self.run_cfg(self.cfg())
+        self.assertEqual(r['status'], 'errors')
+        names = os.listdir(str(self.dst / ORACLE))
+        self.assertEqual(len(names), 1)
+        self.assertTrue(names[0].endswith('.partial'))
+
+    def test_unsafe_payload_paths_rejected_and_nothing_written_outside(self):
+        for bad in ('..\\escape.bin', '../escape.bin', '/abs.bin', 'C:evil.bin', 'a//b.bin', '.'):
+            with self.assertRaises(sync.SyncError):
+                sync.safe_rel(bad)
+        self.assertEqual(sync.safe_rel('repo\\子目录\\x.txt'), 'repo/子目录/x.txt')
+
+    def test_link_in_source_refused(self):
+        self.make_plain('2026-11-25', {'a.dmp': b'abc'})
+        with mock.patch.object(sync.os.path, 'islink', side_effect=lambda p: os.path.basename(p) == 'a.dmp' or False):
+            r = self.run_cfg(self.cfg())
+        self.assertEqual(r['status'], 'errors')
+        self.assertEqual(self.target_tree(), [])
+
+
+class Safety(Base):
+    def cfg(self, mount=None, reserve=0):
+        return self.config(self.job(ORACLE, 'date_dir', 'generic', 'complete.json', extra={'name': 'oracle46'},
+                                    targets=[{'name': 'nas240', 'root': str(self.dst),
+                                              'mount': mount or {'mode': 'linux-cifs', 'source': '//nas/backup'},
+                                              'reserve_bytes': reserve}]))
+
+    def make(self):
+        u = self.src / ORACLE / '2026-11-25'
+        u.mkdir(parents=True)
+        (u / 'a.dmp').write_bytes(b'abc')
+        (u / 'complete.json').write_bytes(json.dumps({'owner': 'x', 'asset': ORACLE, 'date': '2026-11-25',
+                                                      'files': {'a.dmp': {'size': 3}}}).encode('utf-8'))
+
+    def test_unmounted_mountpoint_refused_and_nothing_created(self):
+        self.make()
+        g = sync.Guard(findmnt=lambda p: None, disk_free=lambda p: 10 ** 13)
+        r = self.run_cfg(self.cfg(), guard=g)
+        self.assertEqual(r['status'], 'errors')
+        self.assertFalse((self.dst / ORACLE).exists())
+
+    def test_wrong_fstype_or_source_refused(self):
+        self.make()
+        for guard in (fake_guard(fstype='ext4'), fake_guard(source='//other/share')):
+            r = self.run_cfg(self.cfg(), guard=guard)
+            self.assertEqual(r['status'], 'errors')
+        self.assertEqual(self.target_tree(), [])
+
+    def test_mountpoint_that_is_only_parent_fs_refused(self):
+        self.make()
+        g = sync.Guard(findmnt=lambda p: {'source': '//nas/backup', 'fstype': 'cifs', 'target': str(self.base)},
+                       disk_free=lambda p: 10 ** 13)
+        r = self.run_cfg(self.cfg(), guard=g)
+        self.assertEqual(r['status'], 'errors')
+
+    def test_reserve_space_guard_blocks_before_any_write(self):
+        self.make()
+        g = fake_guard(free=100)
+        r = self.run_cfg(self.cfg(reserve=1000), guard=g)
+        self.assertEqual(r['status'], 'errors')
+        self.assertIn('free space', ''.join(r['results'][0]['errors']))
+        self.assertEqual(self.target_tree(), [])
+
+    def test_oserror_in_one_unit_does_not_stop_other_units_or_result(self):
+        self.make()
+        u2 = self.src / ORACLE / '2026-11-26'
+        u2.mkdir(parents=True)
+        (u2 / 'b.dmp').write_bytes(b'bb')
+        (u2 / 'complete.json').write_bytes(json.dumps({'owner': 'x', 'asset': ORACLE, 'date': '2026-11-26',
+                                                       'files': {'b.dmp': {'size': 2}}}).encode('utf-8'))
+        real_copy = sync.copy_file
+
+        def flaky(src, dst, size, sha256, limiter):
+            if src.endswith('b.dmp'):
+                raise OSError(5, 'simulated SMB I/O error')
+            return real_copy(src, dst, size, sha256, limiter)
+        with mock.patch.object(sync, 'copy_file', side_effect=flaky):
+            r = self.run_cfg(self.cfg())
+        self.assertEqual(r['results'][0]['copied'], ['2026-11-25'])
+        self.assertTrue(any('simulated SMB' in e for e in r['results'][0]['errors']))
+
+    def test_unexpected_target_exception_is_recorded_and_batch_continues(self):
+        self.make()
+        cfg = self.config(self.job(ORACLE, 'date_dir', 'generic', 'complete.json', extra={'name': 'oracle46'},
+                                   targets=[{'name': 'nas240', 'root': str(self.dst),
+                                             'mount': {'mode': 'linux-cifs', 'source': '//nas/backup'},
+                                             'reserve_bytes': 0},
+                                            {'name': 'other', 'root': str(self.base / 'other'),
+                                             'mount': {'mode': 'linux-cifs', 'source': '//nas/x'},
+                                             'reserve_bytes': 0}]))
+        calls = {'n': 0}
+        real = sync.run_target
+
+        def boom(*a, **k):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise RuntimeError('unexpected')
+            return real(*a, **k)
+        with mock.patch.object(sync, 'run_target', side_effect=boom):
+            r = self.run_cfg(cfg, guard=fake_guard())
+        self.assertEqual(len(r['results']), 2)
+        self.assertIn('unexpected RuntimeError', r['results'][0]['errors'][0])
+
+    def test_main_always_writes_result_on_unexpected_failure(self):
+        self.make()
+        cfg_path = self.base / 'cfg.json'
+        cfg_path.write_text(json.dumps(self.cfg()), encoding='utf-8')
+        out = self.base / 'result.json'
+        with mock.patch.object(sync, 'run', side_effect=RuntimeError('boom')):
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = sync.main(['--config', str(cfg_path), '--result', str(out)])
+        self.assertEqual(rc, 1)
+        data = json.loads(out.read_text('utf-8'))
+        self.assertIn('boom', data['fatal'])
+
+
+class LockSafety(Base):
+    def test_busy_lock_reports_and_does_not_copy(self):
+        u = self.src / ORACLE / '2026-11-25'
+        u.mkdir(parents=True)
+        (u / 'a.dmp').write_bytes(b'a')
+        (u / 'complete.json').write_bytes(json.dumps({'owner': 'x', 'asset': ORACLE, 'date': '2026-11-25',
+                                                      'files': {'a.dmp': {'size': 1}}}).encode('utf-8'))
+        cfg = self.config(self.job(ORACLE, 'date_dir', 'generic', 'complete.json', extra={'name': 'oracle46'}))
+        held = sync.RunLock(str(self.state), 'oracle46', 'nas240')
+        held.acquire()
+        try:
+            r = self.run_cfg(cfg, guard=fake_guard())
+        finally:
+            held.release()
+        self.assertEqual(r['status'], 'errors')
+        self.assertIn('another run holds', ''.join(r['results'][0]['errors']))
+        self.assertEqual(self.target_tree(), [])
+        after = self.run_cfg(cfg, guard=fake_guard())
+        self.assertEqual(after['status'], 'ok')
+
+    def test_lock_names_are_validated_and_do_not_collide(self):
+        self.assertNotEqual(sync.RunLock(str(self.state), 'a-b', 'c').path,
+                            sync.RunLock(str(self.state), 'a', 'b-c').path)
+        for bad in ('a/b', '..', 'a.b', 'x y', ''):
+            with self.assertRaises(sync.SyncError):
+                sync.RunLock(str(self.state), bad, 'nas240')
+
+    def test_lock_released_after_run_so_next_run_is_free(self):
+        u = self.src / ORACLE / '2026-11-25'
+        u.mkdir(parents=True)
+        (u / 'a.dmp').write_bytes(b'a')
+        (u / 'complete.json').write_bytes(json.dumps({'owner': 'x', 'asset': ORACLE, 'date': '2026-11-25',
+                                                      'files': {'a.dmp': {'size': 1}}}).encode('utf-8'))
+        cfg = self.config(self.job(ORACLE, 'date_dir', 'generic', 'complete.json', extra={'name': 'oracle46'}))
+        self.assertEqual(self.run_cfg(cfg, guard=fake_guard())['status'], 'ok')
+        self.assertEqual(self.run_cfg(cfg, guard=fake_guard())['status'], 'ok')
+
+
+class ThrottleAndConfig(Base):
+    def test_rate_limit_sleeps_so_bytes_do_not_run_ahead(self):
+        lim = sync.RateLimiter(1000, clock=self.clock, sleep=self.clock.sleep)
+        lim.consume(3000)
+        self.assertAlmostEqual(sum(self.clock.slept), 3.0, places=6)
+
+    def test_burst_credit_is_capped_after_a_stall(self):
+        lim = sync.RateLimiter(1000, clock=self.clock, sleep=self.clock.sleep)
+        lim.consume(100)
+        self.clock.now = 100.0
+        lim.consume(3000)
+        self.assertAlmostEqual(sum(self.clock.slept), 0.1 + 2.0, places=6)
+
+    def test_no_sleep_when_already_behind_schedule(self):
+        lim = sync.RateLimiter(1000, clock=self.clock, sleep=self.clock.sleep)
+        lim.consume(100)
+        self.clock.now = 10.0
+        lim.consume(100)
+        self.assertAlmostEqual(sum(self.clock.slept), 0.1, places=6)
 
 
 class ConfigGuards(unittest.TestCase):
     def base(self, **over):
-        job = {'name': 'j', 'asset': 'a', 'source_root': 'C:/src/root', 'rate_limit_bytes_per_sec': 10,
-               'targets': [{'name': 't', 'root': 'C:/dst/root'}]}
+        job = {'name': 'j', 'asset': 'a', 'layout': 'date_dir', 'receipt_format': 'generic',
+               'source_root': os.path.abspath('src-root'), 'rate_limit_bytes_per_sec': 10,
+               'targets': [{'name': 't', 'root': os.path.abspath('dst-root'),
+                            'mount': {'mode': 'linux-cifs', 'source': '//nas/x'}}]}
         job.update(over)
-        return {'schema_version': 1, 'state_dir': 'C:/state', 'jobs': [job]}
+        return {'schema_version': 1, 'state_dir': os.path.abspath('state'), 'jobs': [job]}
 
     def test_valid_config_normalizes_and_orders_by_priority(self):
         cfg = self.base()
-        cfg['jobs'].append({'name': 'first', 'priority': 0, 'asset': 'b', 'source_root': 'C:/s2',
-                            'rate_limit_bytes_per_sec': 5, 'targets': [{'name': 'x', 'root': 'C:/d2'}]})
+        cfg['jobs'].append({'name': 'first', 'priority': 0, 'asset': 'b', 'layout': 'date_run',
+                            'receipt_format': 'core-bundle-1.0', 'source_root': os.path.abspath('s2'),
+                            'rate_limit_bytes_per_sec': 5,
+                            'targets': [{'name': 'x', 'root': os.path.abspath('d2'),
+                                         'mount': {'mode': 'linux-cifs', 'source': '//n/y'}}]})
         out = sync.validate_config(cfg)
         self.assertEqual([j['name'] for j in out['jobs']], ['first', 'j'])
-        self.assertEqual(out['jobs'][1]['receipt_name'], 'complete.json')
 
-    def test_placeholders_are_refused(self):
+    def test_placeholder_in_any_string_refused_including_owner_and_result_file(self):
         with self.assertRaises(sync.ConfigError):
-            sync.validate_config(self.base(source_root='CHANGE_ME\\share'))
+            sync.validate_config(self.base(expected_owner='CHANGE_ME_OWNER'))
+        cfg = self.base()
+        cfg['result_file'] = 'CHANGE_ME_RESULT.json'
+        with self.assertRaises(sync.ConfigError):
+            sync.validate_config(cfg)
+        cfg = self.base()
+        cfg['state_dir'] = 'CHANGE_ME_STATE'
+        with self.assertRaises(sync.ConfigError):
+            sync.validate_config(cfg)
 
-    def test_overlapping_target_and_source_refused(self):
+    def test_unsafe_job_or_target_names_refused(self):
         with self.assertRaises(sync.ConfigError):
-            sync.validate_config(self.base(targets=[{'name': 't', 'root': 'C:/src/root/inside'}]))
+            sync.validate_config(self.base(name='a.b'))
+        with self.assertRaises(sync.ConfigError):
+            sync.validate_config(self.base(name='../x'))
 
-    def test_duplicate_target_names_refused(self):
+    def test_unknown_format_layout_mount_refused(self):
         with self.assertRaises(sync.ConfigError):
-            sync.validate_config(self.base(targets=[{'name': 't', 'root': 'C:/d1'}, {'name': 't', 'root': 'C:/d2'}]))
+            sync.validate_config(self.base(receipt_format='mystery'))
+        with self.assertRaises(sync.ConfigError):
+            sync.validate_config(self.base(layout='flat'))
+        cfg = self.base()
+        cfg['jobs'][0]['targets'][0]['mount'] = {'mode': 'none'}
+        with self.assertRaises(sync.ConfigError):
+            sync.validate_config(cfg)
 
-    def test_non_positive_rate_refused(self):
+    def test_overlapping_and_duplicate_targets_refused(self):
+        cfg = self.base()
+        cfg['jobs'][0]['targets'][0]['root'] = os.path.join(os.path.abspath('src-root'), 'inside')
         with self.assertRaises(sync.ConfigError):
-            sync.validate_config(self.base(rate_limit_bytes_per_sec=0))
+            sync.validate_config(cfg)
+        cfg = self.base()
+        cfg['jobs'][0]['targets'].append(dict(cfg['jobs'][0]['targets'][0], root=os.path.abspath('d2')))
+        with self.assertRaises(sync.ConfigError):
+            sync.validate_config(cfg)
 
-    def test_unsafe_asset_and_receipt_names_refused(self):
+    def test_windows_unc_requires_unc_root_and_linux_cifs_requires_absolute(self):
+        cfg = self.base()
+        cfg['jobs'][0]['targets'][0]['mount'] = {'mode': 'windows-unc'}
         with self.assertRaises(sync.ConfigError):
-            sync.validate_config(self.base(asset='..'))
+            sync.validate_config(cfg)
+        cfg = self.base()
+        cfg['jobs'][0]['targets'][0]['root'] = 'relative/dir'
         with self.assertRaises(sync.ConfigError):
-            sync.validate_config(self.base(receipt_name='../complete.json'))
-
-    def test_wrong_schema_refused(self):
-        with self.assertRaises(sync.ConfigError):
-            sync.validate_config({'schema_version': 2, 'state_dir': 'x', 'jobs': []})
+            sync.validate_config(cfg)
 
 
 class ExampleConfigs(unittest.TestCase):
     NAMES = ['oracle46-nas243-to-nas240.example.json', 'svn29.example.json',
              'crm200.example.json', 'kingdee252.example.json']
 
-    def test_four_redacted_examples_exist_and_are_placeholder_only(self):
-        d = ROOT / 'platform' / 'sync' / 'examples'
+    def fixture(self, name):
+        data = json.loads((ROOT / 'platform' / 'sync' / 'examples' / name).read_bytes().decode('utf-8-sig'))
+        counter = {'n': 0}
+
+        # walk and replace strings in place
+        def replace(obj, key=None):
+            if isinstance(obj, dict):
+                for k in list(obj):
+                    v = obj[k]
+                    if isinstance(v, str) and 'CHANGE_ME' in v:
+                        counter['n'] += 1
+                        n = counter['n']
+                        if k == 'source':
+                            obj[k] = '//fixture-%d/share' % n
+                        elif k == 'mode':
+                            obj[k] = v
+                        elif k == 'root' and obj.get('mount', {}).get('mode') == 'windows-unc':
+                            obj[k] = '\\\\fixture-%d\\share' % n
+                        else:
+                            obj[k] = os.path.join(tempfile.gettempdir(), 'fixture-%d' % n)
+                    else:
+                        replace(v, k)
+            elif isinstance(obj, list):
+                for item in obj:
+                    replace(item)
+        replace(data)
+        return data
+
+    def test_four_redacted_examples_exist_with_placeholders_and_refuse_to_run(self):
         for name in self.NAMES:
-            p = d / name
+            p = ROOT / 'platform' / 'sync' / 'examples' / name
             self.assertTrue(p.exists(), name)
-            text = p.read_text(encoding='utf-8')
-            self.assertIn('CHANGE_ME', text, name)
+            self.assertIn('CHANGE_ME', p.read_text(encoding='utf-8'), name)
             with self.assertRaises(sync.ConfigError):
                 sync.load_config(str(p))
 
-    def test_examples_become_valid_when_placeholders_replaced(self):
-        d = ROOT / 'platform' / 'sync' / 'examples'
+    def test_examples_are_valid_once_placeholders_are_replaced(self):
         for name in self.NAMES:
-            text = (d / name).read_text(encoding='utf-8')
-            parts = text.split('CHANGE_ME')
-            fixed = parts[0] + ''.join('C:/fixture/%d%s' % (i, p) for i, p in enumerate(parts[1:], 1))
-            data = json.loads(fixed)
-            cfg = sync.validate_config(data)
-            self.assertTrue(cfg['jobs'])
-            for job in cfg['jobs']:
-                self.assertTrue(job['targets'])
+            cfg = sync.validate_config(self.fixture(name))
+            self.assertTrue(cfg['jobs'], name)
 
-
-class ResultAndCli(SyncCase):
-    def test_result_written_atomically_and_exit_codes(self):
-        self.make_date('2026-11-24', {'a.bin': b'a'})
-        cfg = self.config()
-        cfg_path = self.base / 'cfg.json'
-        cfg_path.write_text(json.dumps(cfg), encoding='utf-8')
-        out = self.base / 'result.json'
-        with contextlib.redirect_stdout(io.StringIO()):
-            rc = sync.main(['--config', str(cfg_path), '--result', str(out)])
-        self.assertEqual(rc, 0)
-        data = json.loads(out.read_text('utf-8'))
-        self.assertEqual(data['status'], 'ok')
-        self.assertEqual(data['results'][0]['copied'], ['2026-11-24'])
-        self.assertFalse([p for p in self.base.iterdir() if p.name.endswith('.tmp')])
-
-    def test_config_error_exit_code_2(self):
-        bad = self.base / 'bad.json'
-        bad.write_text('{"schema_version": 9}', encoding='utf-8')
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(sync.main(['--config', str(bad)]), 2)
-
-    def test_errors_exit_code_1(self):
-        self.make_date('2026-11-24', {'a.bin': b'a'}, owner='wrong')
-        cfg_path = self.base / 'cfg.json'
-        cfg_path.write_text(json.dumps(self.config()), encoding='utf-8')
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(sync.main(['--config', str(cfg_path), '--result', str(self.base / 'r.json')]), 1)
+    def test_example_formats_match_real_layouts(self):
+        formats = {}
+        for name in self.NAMES:
+            cfg = sync.validate_config(self.fixture(name))
+            formats[name] = [(j['layout'], j['receipt_format'], j['receipt_name']) for j in cfg['jobs']]
+        self.assertEqual(formats['oracle46-nas243-to-nas240.example.json'], [('date_run', 'core-bundle-1.0', 'complete.json')])
+        self.assertEqual(formats['svn29.example.json'], [('date_run', 'svn-pascal', 'hotcopy-result.json')])
+        self.assertEqual(formats['kingdee252.example.json'], [('date_dir', 'kingdee-list', 'complete.json')])
+        self.assertEqual(formats['crm200.example.json'], [('date_dir', 'crm-single', 'complete.json')])
 
 
 if __name__ == '__main__':

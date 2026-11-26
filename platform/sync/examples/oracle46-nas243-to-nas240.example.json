@@ -4,15 +4,16 @@
   "result_file": "CHANGE_ME_LOCAL_RESULT_FILE",
   "jobs": [
     {
-      "name": "oracle46-nas243-to-nas240",
+      "name": "oracle46",
       "priority": 1,
       "asset": "oracle46-example-asset",
-      "source_root": "CHANGE_ME_NAS243_SHARE",
+      "layout": "date_run",
+      "receipt_format": "core-bundle-1.0",
       "receipt_name": "complete.json",
-      "expected_owner": "CHANGE_ME_OWNER",
+      "source_root": "CHANGE_ME_NAS243_SHARE",
       "rate_limit_bytes_per_sec": 20971520,
       "targets": [
-        {"name": "nas240", "root": "CHANGE_ME_NAS240_SHARE"}
+        {"name": "nas240", "root": "CHANGE_ME_NAS240_MOUNTPOINT", "mount": {"mode": "linux-cifs", "source": "CHANGE_ME_NAS240_CIFS_SOURCE"}, "reserve_bytes": 21474836480}
       ]
     }
   ]

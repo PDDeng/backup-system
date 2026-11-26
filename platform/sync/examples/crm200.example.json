@@ -4,16 +4,17 @@
   "result_file": "CHANGE_ME_LOCAL_RESULT_FILE",
   "jobs": [
     {
-      "name": "crm200-nas240-to-nas243-win254",
+      "name": "crm200",
       "priority": 3,
       "asset": "crm200-example-asset",
-      "source_root": "CHANGE_ME_NAS240_SHARE",
+      "layout": "date_dir",
+      "receipt_format": "crm-single",
       "receipt_name": "complete.json",
-      "expected_owner": "CHANGE_ME_OWNER",
+      "source_root": "CHANGE_ME_NAS240_SHARE",
       "rate_limit_bytes_per_sec": 20971520,
       "targets": [
-        {"name": "nas243", "root": "CHANGE_ME_NAS243_SHARE"},
-        {"name": "win254", "root": "CHANGE_ME_WIN254_SHARE"}
+        {"name": "nas243", "root": "CHANGE_ME_NAS243_MOUNTPOINT", "mount": {"mode": "linux-cifs", "source": "CHANGE_ME_NAS243_CIFS_SOURCE"}, "reserve_bytes": 21474836480},
+        {"name": "win254", "root": "CHANGE_ME_WIN254_UNC", "mount": {"mode": "windows-unc"}, "reserve_bytes": 21474836480}
       ]
     }
   ]
