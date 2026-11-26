@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "state_dir": "CHANGE_ME_LOCAL_STATE_DIR",
+  "result_file": "CHANGE_ME_LOCAL_RESULT_FILE",
+  "jobs": [
+    {
+      "name": "oracle46-nas243-to-nas240",
+      "priority": 1,
+      "asset": "oracle46-example-asset",
+      "source_root": "CHANGE_ME_NAS243_SHARE",
+      "receipt_name": "complete.json",
+      "expected_owner": "CHANGE_ME_OWNER",
+      "rate_limit_bytes_per_sec": 20971520,
+      "targets": [
+        {"name": "nas240", "root": "CHANGE_ME_NAS240_SHARE"}
+      ]
+    }
+  ]
+}
