@@ -1,7 +1,14 @@
 """One daily summary through the existing webhook helper; no inline credentials."""
-import argparse, datetime as dt, fcntl, json, os, subprocess, sys
+import argparse, datetime as dt, json, os, subprocess, sys
 from pathlib import Path
-from zoneinfo import ZoneInfo
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
 from platform_core import convert, report
 
 FAILED_EXEC_STATUSES = {'failed', 'failure', 'error'}
