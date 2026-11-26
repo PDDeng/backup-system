@@ -1,0 +1,13 @@
+{
+  "id": "oracle46",
+  "source": "REPLACE_WITH_EXACT_CONFIG_SOURCE_UNC",
+  "run": "REPLACE_RUN",
+  "version": "11.2.0.1.0",
+  "status": "incomplete",
+  "native_exit_code": null,
+  "dbid": null,
+  "files": [
+    {"name": "FULL_01.DMP", "role": "dump", "bytes": 0, "sha256": "REPLACE_WITH_REAL_SHA256"},
+    {"name": "export.log", "role": "export_log", "bytes": 0, "sha256": "REPLACE_WITH_REAL_SHA256"}
+  ]
+}
