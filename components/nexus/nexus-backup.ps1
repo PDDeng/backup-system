@@ -227,6 +227,12 @@ try{
  $application=Write-NexusArchive $c.Home (Join-Path $pending 'application.tar') 'application/' ([NexusPaxArchiver]::ListFiles($c.Home)) ([DateTime]::UtcNow.AddSeconds(3600).Ticks) $true
  foreach($l in @($preseed.Locked)){Log ('HOT_LOCKED_DEFERRED work/'+$l)}
  foreach($l in @($application.Locked)){Log ('HOT_LOCKED_DEFERRED application/'+$l)}
+ Log 'PRE_STOP_CACHE_WARMUP_START'
+ try{
+  $null=[NexusLongPaths]::Summary($c.Work)
+  $null=[NexusLongPaths]::Summary($c.Home)
+  Log 'PRE_STOP_CACHE_WARMUP_DONE'
+ }catch{Log ('PRE_STOP_CACHE_WARMUP_WARN '+$_.Exception.Message)}
  $watchdog=ArmWatchdog
  $stoppedByUs=$true;$down=[Diagnostics.Stopwatch]::StartNew();Log 'STOPPING nexus-webapp'
  Stop-Service $c.Service

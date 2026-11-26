@@ -198,6 +198,16 @@ try{
  $rejected=$false;try{[void]$nwW.AddFile('bad.bin',(New-Object NonWin32ErrStream),10,0,$true)}catch{$rejected=$true}
  Check 'hot AddFile rejects non-FACILITY_WIN32 IOException with low word 33' $rejected
  $nwW.Dispose();$nwMs.Dispose()
+
+ # J: deadline-aware Scan overload & pre-stop cache warmup order in nexus-backup.ps1
+ $rejected=$false;try{[void][NexusPaxArchiver]::Scan($src2, 1)}catch{$rejected=$true}
+ Check 'Scan(root, deadlineTicks) honours expired deadline immediately' $rejected
+ $scanRes=[NexusPaxArchiver]::Scan($src2, [DateTime]::UtcNow.AddMinutes(5).Ticks)
+ Check 'Scan(root, deadlineTicks) succeeds within future deadline' ($scanRes.Count -ge 3)
+ $backupText=[IO.File]::ReadAllText((Join-Path $component 'nexus-backup.ps1'))
+ $warmIdx=$backupText.IndexOf('PRE_STOP_CACHE_WARMUP_START')
+ $stopIdx=$backupText.IndexOf('Stop-Service $c.Service')
+ Check 'nexus-backup.ps1 runs pre-stop cache warmup before Stop-Service' (($warmIdx -gt 0) -and ($stopIdx -gt $warmIdx))
 }finally{
  if($lockFs){$lockFs.Dispose()}
  if($longFile){[void][PaxFixture]::DeleteFileW(('\\?\'+$longFile))}

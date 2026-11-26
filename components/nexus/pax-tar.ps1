@@ -288,11 +288,15 @@ public class NexusPaxArchiver {
     return full.Substring(root.TrimEnd('\\').Length + 1).Replace('\\', '/');
   }
   // Same traversal rules as NexusLongPaths.Scan in nexus-backup.ps1: no reparse points, long paths allowed.
-  public static ArrayList Scan(string root) {
+  public static ArrayList Scan(string root) { return Scan(root, 0); }
+  public static ArrayList Scan(string root, long deadlineTicks) {
+    if (deadlineTicks > 0 && DateTime.UtcNow.Ticks > deadlineTicks) throw new IOException("Stopped scan deadline exceeded");
     ArrayList result = new ArrayList();
     Stack stack = new Stack();
     stack.Push(root.TrimEnd('\\'));
+    int scanned = 0;
     while (stack.Count > 0) {
+      if (deadlineTicks > 0 && (++scanned % 256) == 0 && DateTime.UtcNow.Ticks > deadlineTicks) throw new IOException("Stopped scan deadline exceeded");
       string dir = (string)stack.Pop();
       FindData d;
       IntPtr h = FindFirstFileW(Extended(dir + @"\*"), out d);
@@ -303,6 +307,7 @@ public class NexusPaxArchiver {
       }
       try {
         do {
+          if (deadlineTicks > 0 && (++scanned % 1024) == 0 && DateTime.UtcNow.Ticks > deadlineTicks) throw new IOException("Stopped scan deadline exceeded");
           if (d.name == "." || d.name == "..") continue;
           string path = dir + @"\" + d.name;
           if ((d.attr & 1024) != 0) throw new InvalidOperationException("Reparse point rejected: " + path);
@@ -358,7 +363,7 @@ public class NexusPaxArchiver {
     if (deadlineTicks > 0 && DateTime.UtcNow.Ticks > deadlineTicks) throw new IOException("Stopped scan deadline exceeded");
     Hashtable seen = new Hashtable();
     int n = 0;
-    foreach (NexusPaxScanEntry e in Scan(root)) {
+    foreach (NexusPaxScanEntry e in Scan(root, deadlineTicks)) {
       if (deadlineTicks > 0 && (++n % 1024) == 0 && DateTime.UtcNow.Ticks > deadlineTicks) throw new IOException("Stopped scan deadline exceeded");
       string rel = Rel(root, e.FullName);
       seen[rel] = true;
