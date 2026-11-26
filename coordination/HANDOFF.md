@@ -29,3 +29,40 @@
 - 阻塞和待确认事项：Codex 休息期间需由 `opencode-worker` 或人类负责人担任 `UI-01` 独立审核人，作者不自审合并；Codex 的 `dad1c0c` 待其恢复或人类负责人确认后推送。
 - 下一项任务及验收标准：`UI-01`（重构 `apps/board/static/` 展示页样式并标明每项数据来源与统计口径，暂不做历史数据库与日志查询接口），详见 `coordination/tasks.json`。
 - 接收人复核与确认时间：`gemini-deputy` 于 2026-11-25T18:55:00+08:00 复核并递增 `state.json` 至 `epoch: 2`。
+
+## 2026-11-26T09:49:00+08:00 协作状态同步与 Phase-3 任务锁登记（epoch: 3）
+
+- 时间、交出人、接收人、原因：2026-11-26T09:49:00+08:00，主负责人 `gemini-deputy` 同步集中式协作状态至 `epoch: 3`，副负责人 `codex-lead`，独立实现成员 `opencode-worker`，按人类负责人最新明确顺序推进：① Oracle/GitLab 备份 -> ② 隔离还原演练 -> ③ 最后统一跑 MD5。
+- 仓库提交与分支：`origin/main` 位于 `43cdcfd`；本同步分支 `ai/gemini/coord-sync-20261126` 仅更新 `coordination/`。
+- 已完成及证据：`UI-01`、`FIX-NEXUS-01`、`FIX-SVN-01` (PR #13 / `83de48f`)、`FIX-NEXUS-02` (PR #17 / `51c3be4`)、`FIX-KINGDEE-02/03` (PR #18/#19 / `43cdcfd`) 均已通过独立复审合入 `main` 并完成生产上线；金蝶 12 账套于 2026-11-26 05:19 首轮实备成功并在看板转绿；`ops253` 14/14 连接检查全绿 `ok`；每日 `08:50` 企业微信汇报正常触发且无刷屏。
+- 正在运行的任务、主机、进程或 systemd 单元：
+  - `ops253`：`oracle46`（`win254` 收尾阶段）、`oracle41`（`nas240`/`win254` 同步中）、`GitLab 52`（`10.5.8` `--network none` 隔离容器内正在执行 `gitlab-rake gitlab:backup:restore`）；`10.5.4-ce.0` 与 `10.0.3-ce.0` 镜像已拉取就绪，后续顺次执行 `247/191/16/14` 隔离恢复；后台 MD5 巡检已按用户顺序暂停以让出 NAS 带宽。
+  - `192.168.0.29`：`CoreBackup-SVN29` 无人值守 `SYSTEM` 任务按计划执行中（12 仓库全量 hotcopy）。
+- 不可重复执行的操作：不得在 `oracle46`/`oracle41`/`svn29` 运行期间重复触发同类全量任务；不得在备份与还原完成前重启高并发 MD5 扫描；不得直连生产 `10.10.10.46`/`10.10.10.41` 执行恢复写入。
+- 未提交改动及所属人：各进行中任务严格按 `coordination/tasks.json` 隔离目录与分支：`UI-03-DATA-01` (`apps/board/`, `gemini-deputy`)、`SYNC-3COPY-01` (`platform/sync/`, `tests/platform/`, `opencode-worker`)、`RESTORE-ORACLE-01` (`components/oracle/restore/`, `tests/oracle/`, `docs/oracle-restore.md`, `codex-lead`)，无路径重叠。
+- 生产授权范围、原值和回滚条件：本分支仅更新 `coordination/` 元数据（`production_change: false`），回滚方式为丢弃分支或 `git revert`。
+- 阻塞和待确认事项：1) `10.10.10.251` 需管理员启用 WinRM 并确认 Oracle `11.2.0.4` Win64 安装介质来源；2) `SYNC-3COPY-01` r1 复审 `CHANGES_REQUESTED` 待 OpenCode 交付 r2；3) PR #15 (`UI-03-DATA-01`) 待按 Codex 复审意见修订并二次复审。
+- 下一项任务及验收标准：优先完成 `GitLab 52/247/191/16/14` 顺次隔离恢复、审核合入 `SYNC-3COPY-01` r2 并补齐 `Oracle46 -> nas240`、审核并落地 `RESTORE-ORACLE-01` 到 `10.10.10.251`，最后统一完成 GitLab 3 端 MD5 复核。
+- 接收人复核与确认时间：`gemini-deputy` 于 2026-11-26T09:49:00+08:00 记录并提交审核。
+
+## 2026-11-26T15:35:00+08:00 PR #21 复审修订与当日阶段进展同步（epoch: 3）
+
+- 时间、交出人、接收人、原因：2026-11-26T15:35:00+08:00，主负责人 `gemini-deputy` 按 `codex-lead` 在 PR #21 的 2 条复审意见完成修订（精确收敛 `RESTORE-ORACLE-01` 三条 `allowed_paths`：`components/oracle/restore/`、`tests/oracle/`、`docs/oracle-restore.md`；将所有已完成任务补全真实合并提交哈希与 GitHub PR/Issue 证据链接并保留完整验收标准），同步截至 15:35 的已合入进展。
+- 仓库提交与分支：`origin/main` 位于 `d87a80f`；本同步分支 `ai/gemini/coord-sync-20261126` 仅修改 `coordination/`。
+- 已完成及证据：
+  - `SYNC-3COPY-01` r2 (`f60cbe1` -> 合并 `d6bc09a`，Issue #16 关闭，ops253 `--dry-run` 通过)；
+  - `DOC-OPS-RUNBOOK` (PR #23 -> 合并 `61649c5`，`docs/运维操作手册.md`)；
+  - `ALERT-SUMMARY-01` (PR #24 -> 合并 `a05b7e8`，ops253 已上线，13/13 单测 PASS，08:50 实测输出 12/14 零 MD5)；
+  - `RESTORE-ORACLE-01` r2 (PR #22 / `df6a281` -> 合并 `d87a80f`，Issue #20 关闭，Python 15/15 + PS 5.1 16/16 + PS 2.0 16/16 PASS)；
+  - `OPS-AUDIT-01` (Issue #7 已按只读首跑证据关闭)；
+  - `GitLab 191` 已完成 `2026-11-26` 三端采集及 `CRON_TZ=Asia/Shanghai` + `crond` 重启（未重启 GitLab）；`10.10.10.251` 已完成 Oracle `11.2.0.4.0` 静默安装与工具脚本部署。
+- 正在运行的任务、主机、进程或 systemd 单元：
+  - `ops253`：`GitLab 16` (`10.0.3`, Web 端口 `18016`) 隔离还原运行中；`Oracle 46` `20261126_000001-7a34` SHA256 计算中；`PR #25` (`UI-04-MATRIX-MD5` @ `efaba10`) 已热更新上线 `8100` 待 `codex-lead` 最终复核；
+  - `10.10.10.251`：隔离空库 `RT46` 创建中（严格限定 `C:\core-backup\restore\oracle46_20261126\`）；
+  - `192.168.0.29`：`CoreBackup-SVN29` 无人值守校验运行中。
+- 不可重复执行的操作：不得在全量任务与还原完成并获用户确认前启动 MD5 巡检；不得在工作时段触发 `Nexus 51` 停服增量；不得在 `SVN 29` 写完 `nas240` 前高带宽跑跨 NAS 补齐。
+- 未提交改动及所属人：仅 `UI-04-MATRIX-MD5` (`apps/board/`, `opencode-worker`, PR #25 `efaba10`) 处于 `in_review`，无路径冲突。
+- 生产授权范围、原值和回滚条件：本分支仅更新 `coordination/` 元数据（`production_change: false`）；`191` 原 crontab 已备份 `/root/crontab.root.before-crontz-20261126`。
+- 阻塞和待确认事项：等待 `codex-lead` 复审 PR #25 与 PR #21 修订提交。
+- 下一项任务及验收标准：完成 `GitLab 16/14` Web 可登录隔离恢复、`Oracle 46/41` 在 `10.10.10.251` 的隔离恢复并发布 `oracle46.json`/`oracle41.json`、`Nexus 51` 非工作时段验证及限速跨 NAS 补齐，全部完成后请示人类负责人是否启动 MD5 核验。
+- 接收人复核与确认时间：`gemini-deputy` 于 2026-11-26T15:35:00+08:00 修订并提交 `codex-lead` 复核。

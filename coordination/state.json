@@ -1,13 +1,14 @@
 {
   "active_leader": "gemini-deputy",
-  "epoch": 2,
+  "deputy_leader": "codex-lead",
+  "epoch": 3,
   "status": "manual_coordination",
-  "last_heartbeat_at": "2026-11-25T18:55:00+08:00",
+  "last_heartbeat_at": "2026-11-26T15:35:00+08:00",
   "handoff_from": "codex-lead",
   "handoff_to": "gemini-deputy",
-  "handoff_reason": "explicit_handoff",
-  "handoff_commit": "5bcb5b5",
+  "handoff_reason": "human_designated_primary_lead",
+  "handoff_commit": "d87a80f",
   "acknowledged_by": "gemini-deputy",
-  "production_writer": null,
-  "note": "Codex 休息，由人类负责人确认交接给 Gemini（gemini-deputy）临时协调；未连接外部自动调度器，不构成生产变更锁。本次阶段不触碰生产备份任务。"
+  "production_writer": "gemini-deputy",
+  "note": "人类负责人明确授权 Gemini (gemini-deputy) 担任主负责人、Codex (codex-lead) 担任副负责人、OpenCode (opencode-worker) 担任独立实现与复核成员。当前严格按用户审批顺序推进：① GitLab/Oracle/SVN/Nexus 备份与时区修复 -> ② GitLab/Oracle 隔离还原演练 -> ③ 跨 NAS 三副本限速补齐 -> ④ 全部完成后再请示统一 MD5 核验。手工协作四条硬规则继续生效，所有合并前须经独立非作者审核。"
 }

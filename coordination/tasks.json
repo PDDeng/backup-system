@@ -6,65 +6,310 @@
       "title": "按 HTML 原型重构展示页样式并清楚标明每项数据来源与统计口径",
       "owner": "gemini-deputy",
       "reviewer": "opencode-worker",
-      "status": "in_review",
+      "status": "done",
       "depends_on": [],
       "allowed_paths": [
-        "apps/board/static/",
-        "coordination/"
+        "apps/board/static/"
       ],
       "branch": "ai/gemini/UI-01",
       "acceptance_criteria": [
-        "展示页视觉与交互布局参照 prototype/研发资料备份结果查询报告.html 与定稿截图落地浅蓝白底驾驶舱与右侧详情抽屉",
-        "完整保留既有登录、强制改密、账号管理、人工业务验收登记、30秒自动刷新、CSRF 与严格 CSP（无内联样式与脚本、无外部CDN）",
-        "在首页指标卡、矩阵页脚、存储/异常卡片、详情抽屉及独立口径说明区清楚标明每项数据的来源与统计口径",
-        "副本到位、大小核对、MD5复核、原生恢复验证与人工业务验收五项严格独立展示，互不覆盖",
-        "当日执行概要、近7天历史趋势和执行日志接口明确标示暂未接入，不用静态示例数据冒充生产结果",
-        "覆盖管理员与只读视角、空数据、过期数据、待MD5与异常场景验证，1920x1080/1366x768/390x844 无整页横向溢出且控制台零报错"
+        "落地浅蓝白底驾驶舱与右侧详情抽屉，保留登录/CSRF/严格CSP与五项独立验收展示",
+        "页面清晰标注数据来源（snapshot.json / PostgreSQL）及口径说明，不伪造生产数据"
       ],
       "test_commands": [
         "node apps/board/test_acceptance_view.js",
-        "python -m unittest discover -s apps/board -p \"test_model.py\"",
-        "python -m unittest discover -s apps/board -p \"test_acceptance.py\"",
-        "python -m unittest discover -s apps/board -p \"test_content_audit.py\""
+        "python -m unittest discover -s apps/board -p \"test_*.py\""
       ],
-      "evidence_paths": [],
-      "commit": null,
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/2"
+      ],
+      "commit": "1f2e40f",
       "production_change": false,
-      "authorization_reference": "人类负责人于 2026-11-25 授权仅改造展示页样式与口径标注，暂不改生产备份任务，暂不新增历史库与日志查询接口",
-      "rollback": "git revert <UI-01 commit> 或在未合并前直接丢弃分支 ai/gemini/UI-01；本分支不触发生产部署",
-      "blockers": [
-        "Codex 休息中，需由 opencode-worker 或人类负责人完成独立审核后再合并至 main"
-      ],
-      "updated_at": "2026-11-25T18:55:00+08:00"
+      "authorization_reference": "人类负责人于 2026-11-25 授权并验收上线（PR #2 合并提交 1f2e40f，代码提交 ed75684/c079e35）",
+      "rollback": "git revert 1f2e40f",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
     },
     {
-      "id": "DATA-01",
-      "title": "持久化每日快照、历史趋势与脱敏执行日志查询接口（暂缓，待 UI-01 验收后启动）",
+      "id": "FIX-NEXUS-01",
+      "title": "Nexus 51 方案 A（热打 tar + 停服极速增量 Delta）",
       "owner": "opencode-worker",
       "reviewer": "gemini-deputy",
-      "status": "todo",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/nexus/",
+        "tests/nexus/"
+      ],
+      "branch": "ai/opencode/FIX-NEXUS-01",
+      "acceptance_criteria": [
+        "支持热打包与短停服增量，兼容 Windows PowerShell 2.0 与长路径",
+        "独立复审 r3 (639c27f) 通过并合入 main，本地单测全部通过（生产完整备份验收另见 FIX-NEXUS-02 与夜间实跑）"
+      ],
+      "test_commands": [
+        "tests/nexus/test-pax-tar.ps1",
+        "tests/nexus/test-local-logic.ps1",
+        "tests/nexus/test-longpath.ps1"
+      ],
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/14"
+      ],
+      "commit": "5e560fb",
+      "production_change": true,
+      "authorization_reference": "人类负责人于 2026-11-25 批准上线（PR #14 合并提交 5e560fb，代码提交 639c27f）",
+      "rollback": "恢复目标机 pax-tar.ps1 备份副本",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
+    },
+    {
+      "id": "FIX-SVN-01",
+      "title": "SVN 29 SYSTEM 无人值守 hotcopy + svnadmin verify + 原子发布",
+      "owner": "codex-lead",
+      "reviewer": "gemini-deputy",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/svn/",
+        "tests/svn/"
+      ],
+      "branch": "ai/codex/FIX-SVN-01",
+      "acceptance_criteria": [
+        "PR #13 独立复审通过并合入 main @ 83de48f，SYSTEM 实测 -CheckOnly 与 -SmallTest 通过",
+        "按 01:00 计划任务部署至 192.168.0.29（全量 12 仓库 hotcopy+verify 运行结果以实际完成回执为准）"
+      ],
+      "test_commands": [
+        "tests/svn/test-svn-backup.ps1"
+      ],
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/13",
+        "https://github.com/PDDeng/backup-system/issues/12"
+      ],
+      "commit": "83de48f",
+      "production_change": true,
+      "authorization_reference": "人类负责人批准 SVN 29 上线（PR #13 / Issue #12 已闭环）",
+      "rollback": "恢复目标机 task-before-fix-svn-01-20261126.xml 与旧脚本目录",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
+    },
+    {
+      "id": "FIX-NEXUS-02",
+      "title": "修复 Nexus 51 热读阶段字节范围锁 (0x80070021) 异常及幽灵锁残留",
+      "owner": "gemini-deputy",
+      "reviewer": "independent-subagent",
+      "status": "done",
       "depends_on": [
-        "UI-01"
+        "FIX-NEXUS-01"
       ],
       "allowed_paths": [
-        "platform/",
-        "tests/"
+        "components/nexus/pax-tar.ps1",
+        "tests/nexus/"
       ],
-      "branch": "ai/opencode/DATA-01",
+      "branch": "ai/gemini/FIX-NEXUS-02",
       "acceptance_criteria": [
-        "按接口契约输出每日快照、近7天/自定义区间统计及脱敏执行日志，禁止以当前快照伪造历史数据",
-        "补充单元测试覆盖空历史、部分成功、采集失败和日期倒置等边界条件"
+        "PR #17 独立双轮复审通过并合入 main @ 51c3be4，目标机 PS 2.0 -CheckOnly RC=0",
+        "已部署至 10.10.10.51，生产首轮夜间全量验证安排在非工作时间执行"
+      ],
+      "test_commands": [
+        "tests/nexus/test-pax-tar.ps1",
+        "tests/nexus/test-local-logic.ps1",
+        "tests/nexus/test-longpath.ps1"
+      ],
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/17"
+      ],
+      "commit": "51c3be4",
+      "production_change": true,
+      "authorization_reference": "PR #17 已合入并完成目标机备份与零停机验证",
+      "rollback": "恢复目标机 pax-tar.ps1.before-fix-nexus-02-20261126",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
+    },
+    {
+      "id": "FIX-KINGDEE-01-03",
+      "title": "金蝶 192.168.6.252 (0.80) PS 2.0 兼容性修复（UTF-8 BOM / robocopy 句柄 / .NET 2.0 原子重命名）并首轮实备转绿",
+      "owner": "gemini-deputy",
+      "reviewer": "independent-subagent",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/kingdee/",
+        "tests/kingdee/"
+      ],
+      "branch": "ai/gemini/FIX-KINGDEE-03",
+      "acceptance_criteria": [
+        "PR #8/#18/#19 独立复审通过并合入 main @ 43cdcfd",
+        "12 个账套成功原子发布至 nas240，看板 kingdee252 转绿 protected（MD5 与恢复演练另计）"
+      ],
+      "test_commands": [
+        "tests/kingdee/test-robocopy-redirect.ps1"
+      ],
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/8",
+        "https://github.com/PDDeng/backup-system/pull/18",
+        "https://github.com/PDDeng/backup-system/pull/19"
+      ],
+      "commit": "43cdcfd",
+      "production_change": true,
+      "authorization_reference": "人类负责人授权推进 0.80 接入，已于 2026-11-26 05:19 完成 12 账套首轮实备",
+      "rollback": "恢复目标机 backup.ps1.before-fix-kingdee-03-20261126 与 ops253 配置文件备份",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
+    },
+    {
+      "id": "SYNC-3COPY-01",
+      "title": "跨 NAS 三副本原子只读补齐工具（Oracle46/SVN29/CRM200/Kingdee252，Issue #16）",
+      "owner": "opencode-worker",
+      "reviewer": "gemini-deputy",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "platform/sync/",
+        "tests/platform/"
+      ],
+      "branch": "ai/opencode/SYNC-3COPY-01",
+      "acceptance_criteria": [
+        "适配 4 类真实生产 NAS 布局与回执格式（Oracle46 date_run、SVN29 hotcopy-result.json PascalCase+多级中文路径+空目录、CRM200 BOM+单文件、Kingdee252 BOM+Unicode .ADF）",
+        "Linux CIFS 挂载点与剩余空间保护、单日期 OSError 隔离、非覆盖原子发布、已存在目标负载实核、占位符与锁安全校验",
+        "r2 (f60cbe1) 37/37 单测 PASS，独立复审 APPROVED 并合入 main @ d6bc09a，ops253 --dry-run 通过（限速实传待 SVN 29 写完 nas240 后启动）"
+      ],
+      "test_commands": [
+        "python -m unittest discover -s tests/platform -p \"test_cross_nas_sync.py\" -v"
+      ],
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/issues/16"
+      ],
+      "commit": "d6bc09a",
+      "production_change": false,
+      "authorization_reference": "Issue #16 已关闭；代码合入 main @ d6bc09a（实现提交 f60cbe1）",
+      "rollback": "git revert d6bc09a；运行期只增不删",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
+    },
+    {
+      "id": "DOC-OPS-RUNBOOK",
+      "title": "全流程运维与还原操作手册（同步入库 docs/运维操作手册.md）",
+      "owner": "gemini-deputy",
+      "reviewer": "independent-subagent",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "docs/运维操作手册.md"
+      ],
+      "branch": "ai/gemini/DOC-OPS-RUNBOOK",
+      "acceptance_criteria": [
+        "覆盖脚本路径、手动备份、改定时任务、隔离还原测试、内网 Web 登录端口、Web 查验与手动 MD5 核验，零凭据泄露",
+        "PR #23 独立复审 APPROVED 并合入 main @ 61649c5"
       ],
       "test_commands": [],
-      "evidence_paths": [],
-      "commit": null,
-      "production_change": false,
-      "authorization_reference": "待人类负责人放行后再进入实现阶段",
-      "rollback": "独立分支隔离，未合入前可直接回退",
-      "blockers": [
-        "人类负责人明确指示本阶段先做 UI-01 样式与口径，历史库与日志查询接口暂不做"
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/23",
+        "docs/运维操作手册.md"
       ],
-      "updated_at": "2026-11-25T18:55:00+08:00"
+      "commit": "61649c5",
+      "production_change": false,
+      "authorization_reference": "人类负责人要求将运维操作手册同步入仓库 docs/ 目录（PR #23）",
+      "rollback": "git revert 61649c5",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
+    },
+    {
+      "id": "ALERT-SUMMARY-01",
+      "title": "精简 08:50 每日企微推送（仅展示需备份/已备份/失败/失败明细，去 MD5）并修复 platform_core 误报",
+      "owner": "gemini-deputy",
+      "reviewer": "codex-lead",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "platform/daily_report.py",
+        "platform/platform_core.py",
+        "platform/test_daily_report.py"
+      ],
+      "branch": "ai/gemini/ALERT-SUMMARY-01",
+      "acceptance_criteria": [
+        "每日推送严格按用户口径展示需备份数量、已备份数量、失败数量与失败明细，不展示 MD5 校验文案",
+        "修复 platform_core.py 忽略 files_md5_rechecked 导致的误报，13/13 单测 PASS，PR #24 经 codex-lead 独立复审 APPROVED 并合入 main @ a05b7e8 上线 ops253"
+      ],
+      "test_commands": [
+        "python -m unittest discover -s platform -p \"test_*.py\" -v"
+      ],
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/24"
+      ],
+      "commit": "a05b7e8",
+      "production_change": true,
+      "authorization_reference": "人类负责人于 2026-11-26 要求精简每日告警推送口径（PR #24，ops253 已保留 .before-pr24-20261126 备份）",
+      "rollback": "恢复 ops253 /opt/core-backup-platform/*.before-pr24-20261126 并 git revert a05b7e8",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
+    },
+    {
+      "id": "RESTORE-ORACLE-01",
+      "title": "Oracle 46 (expdp) 与 Oracle 41 (RMAN) 隔离恢复演练脚本与标准证据契约（面向 10.10.10.251 测试机，Issue #20）",
+      "owner": "codex-lead",
+      "reviewer": "gemini-deputy",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/oracle/restore/",
+        "tests/oracle/",
+        "docs/oracle-restore.md"
+      ],
+      "branch": "ai/codex/RESTORE-ORACLE-01",
+      "acceptance_criteria": [
+        "fail-closed 隔离守卫，严禁连接生产 10.10.10.46 / 10.10.10.41",
+        "支持只读源路径、C:\\core-backup\\restore 子目录、PS 2.0 兼容执行、数据校验与标准 /var/lib/backup-console/restore/oracle46.json & oracle41.json 输出（含 sampled/untested 契约）",
+        "PR #22 r2 (df6a281) 经 Python 15/15 + 真实 PS 5.1 16/16 + 真实 PS 2.0 16/16 独立复审 APPROVED 并合入 main @ d87a80f（251 真实隔离恢复执行结果另行验证发布）"
+      ],
+      "test_commands": [
+        "python -m unittest discover -s tests/oracle -p \"test_*.py\" -v",
+        "powershell.exe -Version 2 -NoProfile -File tests\\oracle\\test-worker.ps1"
+      ],
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/22",
+        "https://github.com/PDDeng/backup-system/issues/20"
+      ],
+      "commit": "d87a80f",
+      "production_change": false,
+      "authorization_reference": "Issue #20 已闭环；人类负责人于 2026-11-26 批准并在 10.10.10.251 完成 Oracle 11.2.0.4 安装后开展实机隔离恢复",
+      "rollback": "git revert d87a80f；隔离测试机 10.10.10.251 不触碰生产数据库",
+      "blockers": [],
+      "updated_at": "2026-11-26T15:35:00+08:00"
+    },
+    {
+      "id": "UI-04-MATRIX-MD5",
+      "title": "Web 矩阵已备份即绿色、独立 MD5 核验按钮、统一零 MD5 测试推送及 PR #15 三项复审修复",
+      "owner": "opencode-worker",
+      "reviewer": "codex-lead",
+      "status": "in_review",
+      "depends_on": [
+        "UI-01",
+        "ALERT-SUMMARY-01"
+      ],
+      "allowed_paths": [
+        "apps/board/"
+      ],
+      "branch": "ai/opencode/UI-04-MATRIX-MD5",
+      "acceptance_criteria": [
+        "修复 PR #15 全部 3 项复审意见（feed_extras 严格负载核对、build_history_7d stale/earliest 口径、export_feed extras-status.json 暴露）",
+        "矩阵有有效备份且无报错即绿（已备份/已到位），独立 MD5 核验顶部按钮与弹窗，Web 测试推送与 PR #24 保持 4 字段零 MD5 一致",
+        "46/46 Python + 18/18 Node 单测 PASS，PR #25 (efaba10) 已热更新上线 8100，待 codex-lead 最终复核后合入 main"
+      ],
+      "test_commands": [
+        "python -m unittest discover -s apps/board -p \"test_*.py\"",
+        "node apps/board/test_acceptance_view.js",
+        "node apps/board/test_matrix_status.js"
+      ],
+      "evidence_paths": [
+        "https://github.com/PDDeng/backup-system/pull/25"
+      ],
+      "commit": "efaba10",
+      "production_change": false,
+      "authorization_reference": "人类负责人于 2026-11-26 批准上线并去除 Web 测试推送 MD5 文案（PR #25 替代已关闭的 PR #15/#11）",
+      "rollback": "回切 start-access-proxy.sh.before-ui04-20261126 或回退 PR #25 分支",
+      "blockers": [
+        "等待 codex-lead 最终复审 PR #25 后合入 main"
+      ],
+      "updated_at": "2026-11-26T15:35:00+08:00"
     }
   ],
   "task_template": {
