@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "state_dir": "CHANGE_ME_LOCAL_STATE_DIR",
+  "result_file": "CHANGE_ME_LOCAL_RESULT_FILE",
+  "jobs": [
+    {
+      "name": "oracle46",
+      "priority": 1,
+      "asset": "oracle46-example-asset",
+      "layout": "date_run",
+      "receipt_format": "core-bundle-1.0",
+      "receipt_name": "complete.json",
+      "source_root": "CHANGE_ME_NAS243_SHARE",
+      "rate_limit_bytes_per_sec": 20971520,
+      "targets": [
+        {"name": "nas240", "root": "CHANGE_ME_NAS240_MOUNTPOINT", "mount": {"mode": "linux-cifs", "source": "CHANGE_ME_NAS240_CIFS_SOURCE"}, "reserve_bytes": 21474836480}
+      ]
+    }
+  ]
+}
