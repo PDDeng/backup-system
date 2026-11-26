@@ -6,65 +6,227 @@
       "title": "按 HTML 原型重构展示页样式并清楚标明每项数据来源与统计口径",
       "owner": "gemini-deputy",
       "reviewer": "opencode-worker",
-      "status": "in_review",
+      "status": "done",
       "depends_on": [],
       "allowed_paths": [
-        "apps/board/static/",
-        "coordination/"
+        "apps/board/static/"
       ],
       "branch": "ai/gemini/UI-01",
       "acceptance_criteria": [
-        "展示页视觉与交互布局参照 prototype/研发资料备份结果查询报告.html 与定稿截图落地浅蓝白底驾驶舱与右侧详情抽屉",
-        "完整保留既有登录、强制改密、账号管理、人工业务验收登记、30秒自动刷新、CSRF 与严格 CSP（无内联样式与脚本、无外部CDN）",
-        "在首页指标卡、矩阵页脚、存储/异常卡片、详情抽屉及独立口径说明区清楚标明每项数据的来源与统计口径",
-        "副本到位、大小核对、MD5复核、原生恢复验证与人工业务验收五项严格独立展示，互不覆盖",
-        "当日执行概要、近7天历史趋势和执行日志接口明确标示暂未接入，不用静态示例数据冒充生产结果",
-        "覆盖管理员与只读视角、空数据、过期数据、待MD5与异常场景验证，1920x1080/1366x768/390x844 无整页横向溢出且控制台零报错"
+        "落地浅蓝白底驾驶舱与右侧详情抽屉，保留登录/CSRF/严格CSP与五项独立验收展示"
       ],
       "test_commands": [
         "node apps/board/test_acceptance_view.js",
-        "python -m unittest discover -s apps/board -p \"test_model.py\"",
-        "python -m unittest discover -s apps/board -p \"test_acceptance.py\"",
-        "python -m unittest discover -s apps/board -p \"test_content_audit.py\""
+        "python -m unittest discover -s apps/board -p \"test_*.py\""
       ],
       "evidence_paths": [],
-      "commit": null,
+      "commit": "merged-to-main",
       "production_change": false,
-      "authorization_reference": "人类负责人于 2026-11-25 授权仅改造展示页样式与口径标注，暂不改生产备份任务，暂不新增历史库与日志查询接口",
-      "rollback": "git revert <UI-01 commit> 或在未合并前直接丢弃分支 ai/gemini/UI-01；本分支不触发生产部署",
-      "blockers": [
-        "Codex 休息中，需由 opencode-worker 或人类负责人完成独立审核后再合并至 main"
-      ],
-      "updated_at": "2026-11-25T18:55:00+08:00"
+      "authorization_reference": "人类负责人于 2026-11-25 授权并验收上线",
+      "rollback": "git revert",
+      "blockers": [],
+      "updated_at": "2026-11-26T09:49:00+08:00"
     },
     {
-      "id": "DATA-01",
-      "title": "持久化每日快照、历史趋势与脱敏执行日志查询接口（暂缓，待 UI-01 验收后启动）",
+      "id": "FIX-NEXUS-01",
+      "title": "Nexus 51 方案 A（热打 tar + 停服极速增量 Delta）",
       "owner": "opencode-worker",
       "reviewer": "gemini-deputy",
-      "status": "todo",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/nexus/",
+        "tests/nexus/"
+      ],
+      "branch": "ai/opencode/FIX-NEXUS-01",
+      "acceptance_criteria": [
+        "支持热打包与短停服增量，兼容 Windows PowerShell 2.0 与长路径"
+      ],
+      "test_commands": [
+        "tests/nexus/test-pax-tar.ps1",
+        "tests/nexus/test-local-logic.ps1",
+        "tests/nexus/test-longpath.ps1"
+      ],
+      "evidence_paths": [],
+      "commit": "merged-to-main",
+      "production_change": true,
+      "authorization_reference": "人类负责人于 2026-11-25 批准上线",
+      "rollback": "恢复目标机 pax-tar.ps1 备份副本",
+      "blockers": [],
+      "updated_at": "2026-11-26T09:49:00+08:00"
+    },
+    {
+      "id": "FIX-SVN-01",
+      "title": "SVN 29 SYSTEM 无人值守 hotcopy + svnadmin verify + 原子发布",
+      "owner": "codex-lead",
+      "reviewer": "gemini-deputy",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/svn/",
+        "tests/svn/"
+      ],
+      "branch": "ai/codex/FIX-SVN-01",
+      "acceptance_criteria": [
+        "PR #13 独立复审通过，SYSTEM 实测 -CheckOnly 与 -SmallTest 通过并按 01:00 定时任务启动"
+      ],
+      "test_commands": [
+        "tests/svn/test-svn-backup.ps1"
+      ],
+      "evidence_paths": [],
+      "commit": "83de48f",
+      "production_change": true,
+      "authorization_reference": "人类负责人批准 SVN 29 上线（PR #13 / Issue #12 已闭环）",
+      "rollback": "恢复目标机 task-before-fix-svn-01-20261126.xml 与旧脚本目录",
+      "blockers": [],
+      "updated_at": "2026-11-26T09:49:00+08:00"
+    },
+    {
+      "id": "FIX-NEXUS-02",
+      "title": "修复 Nexus 51 热读阶段字节范围锁 (0x80070021) 异常及幽灵锁残留",
+      "owner": "gemini-deputy",
+      "reviewer": "independent-subagent",
+      "status": "done",
+      "depends_on": [
+        "FIX-NEXUS-01"
+      ],
+      "allowed_paths": [
+        "components/nexus/pax-tar.ps1",
+        "tests/nexus/"
+      ],
+      "branch": "ai/gemini/FIX-NEXUS-02",
+      "acceptance_criteria": [
+        "PR #17 独立双轮复审通过并合入 main @ 51c3be4，目标机 PS 2.0 -CheckOnly RC=0"
+      ],
+      "test_commands": [
+        "tests/nexus/test-pax-tar.ps1",
+        "tests/nexus/test-local-logic.ps1",
+        "tests/nexus/test-longpath.ps1"
+      ],
+      "evidence_paths": [],
+      "commit": "51c3be4",
+      "production_change": true,
+      "authorization_reference": "PR #17 已合入并完成目标机备份与零停机验证",
+      "rollback": "恢复目标机 pax-tar.ps1.before-fix-nexus-02-20261126",
+      "blockers": [],
+      "updated_at": "2026-11-26T09:49:00+08:00"
+    },
+    {
+      "id": "FIX-KINGDEE-01-03",
+      "title": "金蝶 192.168.6.252 (0.80) PS 2.0 兼容性修复（UTF-8 BOM / robocopy 句柄 / .NET 2.0 原子重命名）并首轮实备转绿",
+      "owner": "gemini-deputy",
+      "reviewer": "independent-subagent",
+      "status": "done",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/kingdee/",
+        "tests/kingdee/"
+      ],
+      "branch": "ai/gemini/FIX-KINGDEE-03",
+      "acceptance_criteria": [
+        "PR #18/#19 独立复审通过并合入 main @ 43cdcfd，12 个账套成功原子发布至 nas240，看板 kingdee252 转绿 protected"
+      ],
+      "test_commands": [
+        "tests/kingdee/test-robocopy-redirect.ps1"
+      ],
+      "evidence_paths": [],
+      "commit": "43cdcfd",
+      "production_change": true,
+      "authorization_reference": "人类负责人授权推进 0.80 接入，已于 2026-11-26 05:19 完成 12 账套首轮实备",
+      "rollback": "恢复目标机 backup.ps1.before-fix-kingdee-03-20261126 与 ops253 配置文件备份",
+      "blockers": [],
+      "updated_at": "2026-11-26T09:49:00+08:00"
+    },
+    {
+      "id": "UI-03-DATA-01",
+      "title": "看板近7天真实成功率走势、三端 SMB 实时目录浏览与每天 08:50 企业微信 Webhook 自助设置（PR #15 复审修订中）",
+      "owner": "gemini-deputy",
+      "reviewer": "codex-lead",
+      "status": "in_progress",
       "depends_on": [
         "UI-01"
       ],
       "allowed_paths": [
-        "platform/",
-        "tests/"
+        "apps/board/"
       ],
-      "branch": "ai/opencode/DATA-01",
+      "branch": "ai/gemini/UI-03-DATA-01",
       "acceptance_criteria": [
-        "按接口契约输出每日快照、近7天/自定义区间统计及脱敏执行日志，禁止以当前快照伪造历史数据",
-        "补充单元测试覆盖空历史、部分成功、采集失败和日期倒置等边界条件"
+        "修复 Codex 在 PR #15 中提出的 3 项复审意见（严格回执/负载文件核对、stale/未来/最早证据前日期口径、extras 失败暴露与 host 桥接可复现部署说明）",
+        "通过 Codex 二次独立复审后合入 main 并同步上线看板容器"
       ],
-      "test_commands": [],
+      "test_commands": [
+        "python -m unittest discover -s apps/board -p \"test_*.py\""
+      ],
+      "evidence_paths": [],
+      "commit": "49743f1",
+      "production_change": false,
+      "authorization_reference": "人类负责人于 2026-11-25 要求 08:50 定时推送、可配置 Webhook、7 天走势与三端 SMB 展示",
+      "rollback": "回切旧看板容器或回退 PR #15 分支",
+      "blockers": [
+        "PR #15 处于 CHANGES_REQUESTED（msg-725262c9），待修复并由 codex-lead 二次复审"
+      ],
+      "updated_at": "2026-11-26T09:49:00+08:00"
+    },
+    {
+      "id": "SYNC-3COPY-01",
+      "title": "跨 NAS 三副本原子只读补齐工具（Oracle46/SVN29/CRM200/Kingdee252，Issue #16）",
+      "owner": "opencode-worker",
+      "reviewer": "gemini-deputy",
+      "status": "in_progress",
+      "depends_on": [],
+      "allowed_paths": [
+        "platform/sync/",
+        "tests/platform/"
+      ],
+      "branch": "ai/opencode/SYNC-3COPY-01",
+      "acceptance_criteria": [
+        "适配 4 类真实生产 NAS 布局与回执格式（Oracle46 date_run、SVN29 hotcopy-result.json PascalCase+多级中文路径+空目录、CRM200 BOM+单文件、Kingdee252 BOM+Unicode .ADF）",
+        "Linux CIFS 挂载点与剩余空间保护、单日期 OSError 隔离、非覆盖原子发布、已存在目标负载实核、占位符与锁安全校验",
+        "不连接生产主机、不提交任何密码/真实主机信息，通过独立复审后由主负责人合入上线"
+      ],
+      "test_commands": [
+        "python -m unittest discover -s tests/platform -p \"test_cross_nas_sync.py\" -v"
+      ],
+      "evidence_paths": [],
+      "commit": "7f2a2f6",
+      "production_change": false,
+      "authorization_reference": "Issue #16；人类负责人要求未配置三副本从已到位 NAS 自动补齐",
+      "rollback": "独立分支隔离，未合入前直接丢弃；运行期只增不删",
+      "blockers": [
+        "r1 (7f2a2f6) 独立复审结论 CHANGES_REQUESTED（msg-8dc1e7e8 / Issue #16 评论），待 OpenCode 交付 r2 bundle"
+      ],
+      "updated_at": "2026-11-26T09:49:00+08:00"
+    },
+    {
+      "id": "RESTORE-ORACLE-01",
+      "title": "Oracle 46 (expdp) 与 Oracle 41 (RMAN) 隔离恢复演练脚本与标准证据契约（面向 10.10.10.251 测试机，Issue #20）",
+      "owner": "codex-lead",
+      "reviewer": "gemini-deputy",
+      "status": "in_progress",
+      "depends_on": [],
+      "allowed_paths": [
+        "components/oracle/restore*",
+        "platform/restore/",
+        "tests/oracle/"
+      ],
+      "branch": "ai/codex/RESTORE-ORACLE-01",
+      "acceptance_criteria": [
+        "fail-closed 隔离守卫，严禁连接生产 10.10.10.46 / 10.10.10.41",
+        "支持只读源路径、PS 2.0 兼容执行、数据校验与标准 /var/lib/backup-console/restore/oracle46.json & oracle41.json 输出",
+        "不提交任何主机凭据或真实备份数据，经独立复审后由主负责人安排在 10.10.10.251 实测"
+      ],
+      "test_commands": [
+        "python -m unittest discover -s tests/oracle -p \"test_*.py\" -v"
+      ],
       "evidence_paths": [],
       "commit": null,
       "production_change": false,
-      "authorization_reference": "待人类负责人放行后再进入实现阶段",
-      "rollback": "独立分支隔离，未合入前可直接回退",
+      "authorization_reference": "Issue #20；人类负责人于 2026-11-26 批准执行并在 10.10.10.251 安排 Oracle 安装测试",
+      "rollback": "独立分支与隔离测试机 10.10.10.251，不触碰生产数据库",
       "blockers": [
-        "人类负责人明确指示本阶段先做 UI-01 样式与口径，历史库与日志查询接口暂不做"
+        "10.10.10.251 待开启 WinRM 及确认 Oracle 11.2.0.4 Win64 安装介质来源"
       ],
-      "updated_at": "2026-11-25T18:55:00+08:00"
+      "updated_at": "2026-11-26T09:49:00+08:00"
     }
   ],
   "task_template": {
