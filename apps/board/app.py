@@ -6,6 +6,7 @@ from flask import Flask,request,session,jsonify,send_from_directory,g
 from werkzeug.security import generate_password_hash,check_password_hash
 from model import project
 from acceptance import validate as validate_acceptance
+from webhook_settings import read_settings as read_webhook_settings, save_settings as save_webhook_settings, send_test_message as send_webhook_test
 
 def secret(name):return Path(os.environ[name]).read_text().strip()
 app=Flask(__name__,static_folder='static')
@@ -96,6 +97,14 @@ def password():
   if check_password_hash(u['password'],new):return fail('新密码不能与旧密码相同')
   c.execute('UPDATE users SET password=%s,version=version+1,must_change=false WHERE id=%s',(hash_password(new),u['id']));audit(c,'password_change',u['username'])
  session.clear();return jsonify(ok=True,relogin=True)
+def read_optional_evidence(filename):
+ base=Path(os.environ.get('SNAPSHOT','/evidence/snapshot.json')).parent
+ p=base/filename
+ try:
+  if not p.is_file() or p.is_symlink() or p.stat().st_size>4*1024**2:return None
+  return json.loads(p.read_text(encoding='utf-8-sig'))
+ except (OSError,ValueError):return None
+
 @app.get('/api/board')
 @auth()
 def board():
@@ -106,8 +115,36 @@ def board():
   with db() as c:
    rows=c.execute('SELECT e.id,e.record,e.created,u.username AS tester FROM acceptance_events e JOIN users u ON u.id=e.actor ORDER BY e.id DESC LIMIT 500').fetchall()
   for a in result['assets']:a['manual_acceptance']=[dict(r) for r in rows if r['record']['asset_id']==a['id']]
+  result['history_7d']=read_optional_evidence('history-7d.json')
+  result['smb_browser']=read_optional_evidence('smb-browser.json')
   return jsonify(result)
  except (OSError,ValueError,KeyError,TypeError):return fail('备份证据暂不可用，请联系运维；不能据此认定备份成功',503)
+
+@app.get('/api/webhook')
+@auth(admin=True)
+def get_webhook():
+ return jsonify(read_webhook_settings())
+
+@app.post('/api/webhook')
+@auth(admin=True)
+def update_webhook():
+ try:
+  saved=save_webhook_settings(request.get_json())
+ except ValueError as e:return fail(str(e),400)
+ except OSError:return fail('推送配置写入失败，请检查挂载权限',500)
+ with db() as c:audit(c,'webhook_update','enabled='+str(saved['enabled'])+' time='+str(saved['send_time']))
+ return jsonify(ok=True,webhook=saved)
+
+@app.post('/api/webhook/test')
+@auth(admin=True)
+def test_webhook():
+ try:
+  current_board=evidence_board()
+  res=send_webhook_test(current_board)
+ except ValueError as e:return fail(str(e),400)
+ except (RuntimeError,OSError) as e:return fail(str(e),502)
+ with db() as c:audit(c,'webhook_test','ok='+str(res.get('ok'))+' errcode='+str(res.get('errcode')))
+ return jsonify(res)
 @app.post('/api/acceptance')
 @auth(admin=True)
 def submit_acceptance():

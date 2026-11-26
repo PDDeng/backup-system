@@ -113,6 +113,8 @@
                 <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-export"></use></svg>
                 <span>导出报告</span>
               </button>
+              <button class="button ghost" id="webhook-btn" type="button" hidden title="配置每天 08:50 企业微信备份日报推送地址">推送设置</button>
+              <button class="button ghost" id="md5-btn" type="button" title="查看 14 项资产三端 MD5 独立复核状态与核验时间">MD5 核验</button>
               <button class="button ghost" id="passwd" type="button">改密</button>
               <button class="button ghost" id="manage" type="button" hidden>账号</button>
               <button class="button ghost" id="logout" type="button">退出</button>
@@ -138,9 +140,9 @@
             <div><dt>待执行</dt><dd>—</dd></div>
             <div><dt>成功率</dt><dd>—</dd></div>
           </dl>
-          <span class="daily-note" title="当前仅接入 /api/board 快照投影；每日任务明细与成功率需待后续历史快照库接口（DATA-01）接入后展示，不以静态数据冒充。">
+          <span class="daily-note" id="daily-note">
             <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-clock-countdown"></use></svg>
-            任务明细接口暂未接入（数据来源：后续 DATA-01）
+            数据来源：/api/board 实时快照（每天 08:50 自动推送至企业微信）
           </span>
         </section>
 
@@ -161,9 +163,8 @@
                   <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-funnel-simple"></use></svg>
                   <select id="filter" aria-label="筛选资产保护状态">
                     <option value="all">全部状态</option>
-                    <option value="delivered">近期副本到位（含待MD5）</option>
+                    <option value="delivered">已备份（已到位）</option>
                     <option value="protected">近期副本齐全（已核验）</option>
-                    <option value="pending_verification">已到位 · 待 MD5 复核</option>
                     <option value="attention">仅看异常待关注</option>
                     <option value="restored">原生恢复通过</option>
                   </select>
@@ -220,27 +221,57 @@
             <div class="panel-provenance">口径：缺有效副本、记录超期、源端连接非 ok、目标未接入或批次不一致</div>
           </section>
 
-          <section class="panel history" aria-labelledby="history-heading">
+          <section class="panel history-panel" aria-labelledby="history-heading">
             <header class="panel-head">
               <div class="panel-title">
                 <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-chart-line-up"></use></svg>
-                <h2 id="history-heading">近 7 天备份结果</h2>
-                <span class="badge neutral">历史接口暂未接入</span>
+                <h2 id="history-heading">近 7 天备份成功率趋势</h2>
+                <span class="badge info" id="history-source-badge">真实回执</span>
               </div>
               <span class="head-note" id="history-range">以当前采样日为锚点</span>
             </header>
-            <div class="history-body">
-              <div class="history-message">
-                <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-chart-bar"></use></svg>
-                <div>
-                  <strong>历史趋势库暂未接入（后续 DATA-01）</strong>
-                  <p>当前仅展示本次实时快照日状态，严禁以单次快照或静态数据冒充 7 日历史趋势。</p>
-                </div>
-              </div>
-              <div id="day-list" class="day-list" aria-label="近 7 天快照接入状态"></div>
+            <div class="trend-body">
+              <div id="history-chart" class="trend-chart" aria-label="近 7 天备份成功率趋势折线图"></div>
+              <div id="day-list" class="day-list" aria-label="近 7 天每日成功率明细"></div>
             </div>
+            <div class="panel-provenance" id="history-provenance">来源：ops253 三端 NAS 已发布回执与每日实时快照（仅依据真实记录生成，无记录日期明确标示）</div>
           </section>
         </div>
+
+        <section class="panel smb-panel" aria-labelledby="smb-heading">
+          <header class="panel-head smb-head">
+            <div class="panel-title">
+              <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-hard-drives"></use></svg>
+              <h2 id="smb-heading">备份目录实时浏览</h2>
+              <code class="smb-unc-pill" id="smb-active-unc">\\10.10.11.243\资源备份</code>
+            </div>
+            <div class="smb-tabs" id="smb-tabs" role="tablist" aria-label="切换 SMB 备份目录"></div>
+          </header>
+          <div class="smb-layout">
+            <div class="smb-table-wrap">
+              <table class="mini-table smb-table">
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>修改日期</th>
+                    <th>类型</th>
+                    <th>最新有效批次 / 状态</th>
+                  </tr>
+                </thead>
+                <tbody id="smb-entries"></tbody>
+              </table>
+              <div class="empty" id="smb-empty" hidden></div>
+            </div>
+            <aside class="smb-side" id="smb-side">
+              <div class="smb-health" id="smb-health"></div>
+              <div class="smb-children-box" id="smb-children-box">
+                <h3 id="smb-children-title">点击左侧目录查看最近日期</h3>
+                <div id="smb-children-list" class="smb-children-list"></div>
+              </div>
+            </aside>
+          </div>
+          <div class="panel-provenance" id="smb-provenance">来源：ops253 只读挂载实时采样（\\10.10.11.243\资源备份 · \\10.10.10.254\资源备份[钱总办公室] · \\192.168.5.240\资源备份），不暴露任何凭据</div>
+        </section>
 
         <section class="panel provenance-section" id="provenance-section" aria-labelledby="provenance-heading">
           <header class="panel-head">
@@ -261,15 +292,15 @@
             </article>
             <article class="prov-card">
               <h3>3. 副本到位、待 MD5 与异常口径</h3>
-              <p>逐资产核对每个期望存储目标，副本日期须落在有效窗口内（默认 <code>0–2 天</code>，Harbor <code>0–8 天</code>，或资产 <code>max_age_days</code>，拒绝未来日期）：<code>receipt_found</code> / <code>files_md5_rechecked</code> 计为<strong>近期副本齐全</strong>；<code>files_size_rechecked</code> 计为<strong>已到位·待 MD5</strong>（计入“近期副本到位”，同时单列待 MD5 数量）；其余缺记录、超期、连接异常、目标未接入或批次不一致计入<strong>异常待关注</strong>。</p>
+              <p>逐资产核对每个期望存储目标，副本日期须落在有效窗口内（默认 <code>0–2 天</code>，Harbor <code>0–8 天</code>，或资产 <code>max_age_days</code>，拒绝未来日期）：<code>receipt_found</code> / <code>files_md5_rechecked</code> 计为<strong>近期副本齐全</strong>；<code>files_size_rechecked</code> 计为<strong>已到位·待 MD5</strong>（计入“近期副本到位”，待 MD5 不在矩阵中单列，仅在「MD5 核验」弹窗展示）；其余缺记录、超期、连接异常、目标未接入或批次不一致计入<strong>异常待关注</strong>。</p>
             </article>
             <article class="prov-card">
               <h3>4. 五项验证严格分离</h3>
               <p>① 副本到位、② 文件大小核对、③ MD5 内容复核、④ 原生技术恢复（<code>restore.status</code>，仅 <code>passed</code> 计入“恢复验证通过”）、⑤ 人工业务验收（PostgreSQL 独立追加记录，仅匹配当前已到位 <code>backup_run</code>）。五项独立计量、互不替代、互不覆盖。</p>
             </article>
-            <article class="prov-card prov-pending">
-              <h3>5. 当前未接入项（显式声明）</h3>
-              <p>以下能力已按阶段规划归属后续任务（<code>DATA-01</code>），当前接口未提供，界面明确标示“暂未接入”而不构造假数据：当日执行任务数与成功率、近 7 天及更长历史趋势数据库、脱敏执行日志查询接口、目标共享目录实时截图。</p>
+            <article class="prov-card">
+              <h3>5. 7 天趋势、SMB 目录与每日推送</h3>
+              <p>近 7 天趋势与三端 SMB 备份目录由 <code>ops253</code> 定时只读采样生成（<code>history-7d.json</code> / <code>smb-browser.json</code>），严禁使用假数据。每日 <strong>08:50</strong> 企业微信日报通过管理员「推送设置」独立管理，所有密钥仅存服务端私有配置（<code>0600</code>）。</p>
             </article>
           </div>
         </section>
@@ -316,7 +347,7 @@
         <tbody>
           <tr><td><strong>纳管核心资产</strong></td><td><code>/api/board → summary.total</code></td><td><code>snapshot.json</code> 中 <code>assets</code> 清单总条目数。</td></tr>
           <tr><td><strong>近期副本到位 &amp; 到位占比</strong></td><td><code>summary.delivered / summary.total</code></td><td>资产所有期望目标均在有效窗口内有完成记录或大小核对记录（含待 MD5 复核资产），且无异常项；占比分母固定为纳管总数。</td></tr>
-          <tr><td><strong>已到位 · 待 MD5</strong></td><td><code>summary.pending_verification</code></td><td>至少 1 个目标为 <code>files_size_rechecked</code>（大小已核对、MD5 待复核）且无其他异常。</td></tr>
+          <tr><td><strong>已备份（含待 MD5）</strong></td><td><code>summary.pending_verification</code></td><td>至少 1 个目标为 <code>files_size_rechecked</code>（大小已核对、MD5 待复核）且无其他异常。</td></tr>
           <tr><td><strong>异常待关注</strong></td><td><code>summary.attention</code></td><td>命中任一异常：缺有效完成记录、副本日期超期或晚于当前日、未配置目标、执行批次与副本批次不一致、源端连接检查非 <code>ok</code>。</td></tr>
           <tr><td><strong>恢复验证通过</strong></td><td><code>summary.restore_passed</code></td><td>仅统计 <code>restore.status === "passed"</code> 的原生技术恢复结果；不与副本到位或人工验收混算。</td></tr>
           <tr><td><strong>人工业务验收</strong></td><td>PostgreSQL <code>acceptance_events</code></td><td>独立追加审计表，由管理员登记；列表标签仅匹配当前已到位 <code>backup_run</code>，旧批次验收单独标示为历史记录。</td></tr>
@@ -326,6 +357,24 @@
       </table>
     </div>
     <div class="dialogactions"><button class="button primary" id="okglossary" type="button">知道了</button></div>
+  </dialog>
+
+  <dialog id="md5dialog" class="modal-dialog" aria-labelledby="md5-title">
+    <div class="dialog-head">
+      <div>
+        <h2 id="md5-title">MD5 独立核验</h2>
+        <p>逐项查看每个资产三端副本的 MD5 独立复核状态。仅展示已记录的核验结果；未执行的不视为已核验，不造假。</p>
+      </div>
+      <button class="button ghost" id="closemd5" type="button" aria-label="关闭">关闭</button>
+    </div>
+    <div class="md5-summary" id="md5-summary"></div>
+    <div class="md5-scroll">
+      <table class="md5-table">
+        <thead id="md5-head"></thead>
+        <tbody id="md5-body"></tbody>
+      </table>
+    </div>
+    <div class="dialogactions"><button class="button primary" id="okmd5" type="button">知道了</button></div>
   </dialog>
 
   <dialog id="passworddialog" class="modal-dialog modal-sm">
@@ -395,8 +444,39 @@
     </form>
   </dialog>
 
+  <dialog id="webhookdialog" class="modal-dialog modal-md" aria-labelledby="webhook-title">
+    <div class="dialog-head">
+      <h2 id="webhook-title">每日备份推送设置（企业微信 Webhook）</h2>
+      <button class="icon-btn" id="closewebhook" type="button" aria-label="关闭推送设置">
+        <svg aria-hidden="true" focusable="false" class="icon" viewBox="0 0 256 256"><use href="#ic-x"></use></svg>
+      </button>
+    </div>
+    <p class="muted">每天 <strong>08:50</strong> 仅推送 1 条当日备份汇总（含成功数、待 MD5 列表与失败/需处理名单），不再发送每小时刷屏消息。密钥保存在服务端私密文件（0600），前端仅脱敏展示尾号。</p>
+    <div class="webhook-status-bar">
+      <span>当前状态：<strong id="wh-status-text">读取中…</strong></span>
+      <span>当前地址：<code id="wh-masked-url">未配置</code></span>
+    </div>
+    <form id="webhookform">
+      <label class="checkbox-row">
+        <input id="wh-enabled" type="checkbox">
+        <span>启用每天 08:50 企业微信日报推送</span>
+      </label>
+      <label>企业微信 Webhook 地址（留空则保持当前已保存地址不变）
+        <input id="wh-url" type="url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." autocomplete="off">
+      </label>
+      <p id="wh-last-test" class="muted"></p>
+      <p id="wh-error" class="form-error" role="alert"></p>
+      <div class="dialogactions">
+        <button class="button outline" type="button" id="wh-test-btn">立即测试推送</button>
+        <button class="button outline" type="button" id="cancelwebhook">关闭</button>
+        <button class="button primary" type="submit" id="wh-save-btn">保存设置</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <script src="/static/acceptance-view.js"></script>
+  <script src="/static/matrix-status.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

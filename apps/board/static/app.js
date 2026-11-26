@@ -10,6 +10,8 @@ let selectedAssetId = null;
 let selectedTargetId = null;
 let activeTab = 'result';
 let toastTimer = null;
+let activeSmbShareId = 'nas243';
+let selectedSmbEntryName = null;
 
 const TARGET_META = {
   nas243: { name: 'NAS 243', short: 'NAS 243', hint: '研发备份存储' },
@@ -121,7 +123,7 @@ function deriveColumns(boardData) {
 
 function stateBadgeInfo(asset) {
   if (asset.state === 'protected') return { text: '近期副本齐全', cls: 'good', ic: 'ic-check-circle' };
-  if (asset.state === 'pending_verification') return { text: '已到位 · 待MD5', cls: 'warn', ic: 'ic-clock' };
+  if (asset.state === 'pending_verification') return { text: '已备份', cls: 'good', ic: 'ic-check-circle' };
   const noTargets = (asset.issues || []).some(s => s.includes('目标尚未接入'));
   if (noTargets) return { text: '目标尚未接入', cls: 'warn', ic: 'ic-warning-circle' };
   return { text: '需要关注', cls: 'bad', ic: 'ic-warning-circle' };
@@ -207,6 +209,7 @@ async function boot() {
     $('login').hidden = true;
     $('board').hidden = false;
     $('manage').hidden = current.role !== 'admin';
+    if ($('webhook-btn')) $('webhook-btn').hidden = current.role !== 'admin';
     $('user-tag').textContent = current.username + ' · ' + (current.role === 'admin' ? '管理员' : '查看人员');
     if (current.must_change) {
       $('passworddialog').showModal();
@@ -258,10 +261,33 @@ function render() {
   $('foot-source').textContent = '数据来源：/api/board（snapshot.json 实时投影 + PostgreSQL 人工验收）· 采样时间 ' + formatSampled(data.sampled) + ' · 完成记录 ≠ 恢复验收，每 30 秒自动刷新展示。';
 
   renderKpis(s);
+  renderDailySummary(s);
   renderStorage();
   renderRisks();
   renderHistoryStrip();
+  renderSmbBrowser();
   renderAssets();
+}
+
+function renderDailySummary(s) {
+  const dl = $('daily-values');
+  if (!dl) return;
+  const total = s.total || 0;
+  const delivered = s.delivered || 0;
+  const attention = s.attention || 0;
+  const restored = s.restore_passed || 0;
+  const items = [
+    ['需备份', String(total)],
+    ['已备份', String(delivered)],
+    ['失败待处理', String(attention)],
+    ['恢复通过', String(restored)]
+  ];
+  dl.replaceChildren();
+  for (const [label, val] of items) {
+    const wrap = node('div');
+    wrap.append(node('dt', label), node('dd', val));
+    dl.append(wrap);
+  }
 }
 
 function renderKpis(s) {
@@ -273,7 +299,7 @@ function renderKpis(s) {
   const defs = [
     {
       filter: 'all',
-      label: '纳管研发资产',
+      label: '需备份（纳管资产）',
       value: s.total,
       ic: 'ic-stack',
       def: '来源: snapshot.json 资产清单 · 口径: 全部纳管核心资产',
@@ -282,16 +308,16 @@ function renderKpis(s) {
     },
     {
       filter: 'delivered',
-      label: '近期副本到位',
+      label: '已备份',
       value: s.delivered,
       ic: 'ic-check-circle',
-      def: '来源: copies/transfers · 口径: 有效期内已到位（含待 MD5）',
-      extraNote: { label: '到位占比', val: ratio, title: '分母为纳管研发资产总数 (' + s.total + ' 项)' },
-      md5Count: s.pending_verification || 0
+      def: '来源: copies/transfers · 口径: 有效记录且无报错即已备份（待 MD5 不在此计）',
+      extraNote: { label: '备份占比', val: ratio, title: '分母为需备份资产总数 (' + s.total + ' 项)' },
+      md5Count: 0
     },
     {
       filter: 'attention',
-      label: '异常待关注',
+      label: '失败待处理',
       value: s.attention,
       ic: 'ic-warning',
       def: '来源: model.project 校验规则 · 口径: 缺副本/超期/连接或批次异常',
@@ -300,7 +326,7 @@ function renderKpis(s) {
     },
     {
       filter: 'restored',
-      label: '恢复验证通过',
+      label: '恢复通过',
       value: s.restore_passed,
       ic: 'ic-shield-check',
       def: '来源: snapshot.json restore · 口径: 仅计原生恢复 passed',
@@ -328,9 +354,6 @@ function renderKpis(s) {
     main.append(node('span', item.label, 'metric-label'));
     const valRow = node('span', undefined, 'metric-value');
     valRow.append(node('strong', String(item.value)), node('small', '项'));
-    if (item.md5Count > 0) {
-      valRow.append(node('span', item.md5Count + ' 项待 MD5', 'md5-note'));
-    }
     main.append(valRow);
     top.append(disc, main);
 
@@ -439,34 +462,317 @@ function renderRisks() {
   });
 }
 
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  }
+  return el;
+}
+
 function renderHistoryStrip() {
   const container = $('day-list');
+  const chartBox = $('history-chart');
   container.replaceChildren();
+  if (chartBox) chartBox.replaceChildren();
 
-  let anchor = null;
-  if (data && typeof data.sampled === 'string') {
-    const m = data.sampled.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (m) anchor = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  }
-  if (!anchor) {
-    const now = new Date();
-    anchor = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  let days = [];
+  const hist = data && data.history_7d && Array.isArray(data.history_7d.days) ? data.history_7d.days : null;
+  if (hist && hist.length) {
+    days = hist;
+    if ($('history-source-badge')) {
+      $('history-source-badge').textContent = '真实回执 + 实时快照';
+      $('history-source-badge').className = 'badge good';
+    }
+    $('history-range').textContent = days[0].label + ' 至 ' + days[days.length - 1].label + '（采样 ' + formatSampled(data.history_7d.sampled) + '）';
+  } else {
+    let anchor = null;
+    if (data && typeof data.sampled === 'string') {
+      const m = data.sampled.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) anchor = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    }
+    if (!anchor) {
+      const now = new Date();
+      anchor = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    }
+    const s = (data && data.summary) || { total: 0, delivered: 0, attention: 0 };
+    const todayRate = s.total > 0 ? Number(((s.delivered / s.total) * 100).toFixed(1)) : null;
+    for (let offset = 6; offset >= 0; offset--) {
+      const d = new Date(anchor.getTime() - offset * 86400000);
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      const isToday = offset === 0;
+      days.push({
+        date: yyyy + '-' + mm + '-' + dd,
+        label: mm + '-' + dd,
+        total: s.total,
+        delivered: isToday ? s.delivered : null,
+        attention: isToday ? s.attention : null,
+        rate: isToday ? todayRate : null,
+        source: isToday ? 'live_snapshot' : 'no_evidence'
+      });
+    }
+    if ($('history-source-badge')) {
+      $('history-source-badge').textContent = '仅当日实时快照';
+      $('history-source-badge').className = 'badge neutral';
+    }
+    $('history-range').textContent = days[0].label + ' 至 ' + days[days.length - 1].label + '（历史回执采集就绪后自动补全）';
   }
 
-  const days = [];
-  for (let offset = 6; offset >= 0; offset--) {
-    const d = new Date(anchor.getTime() - offset * 86400000);
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    days.push({ label: mm + '-' + dd, isAnchor: offset === 0 });
-  }
+  // Render SVG trend line chart (strict CSP: pure DOM SVG, zero inline styles)
+  if (chartBox) {
+    const W = 680;
+    const H = 148;
+    const padL = 42;
+    const padR = 24;
+    const padT = 24;
+    const padB = 26;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+    const validRates = days.map(d => d.rate).filter(r => typeof r === 'number' && Number.isFinite(r));
+    const minVal = validRates.length ? Math.max(0, Math.floor((Math.min(...validRates) - 10) / 10) * 10) : 0;
+    const yMin = Math.min(60, minVal);
+    const yMax = 100;
+    const ySpan = Math.max(10, yMax - yMin);
 
-  $('history-range').textContent = days[0].label + ' 至 ' + days[6].label + '（仅当前采样日有实时快照）';
+    const xOf = idx => padL + (days.length > 1 ? (plotW * idx) / (days.length - 1) : plotW / 2);
+    const yOf = val => padT + plotH - ((Math.max(yMin, Math.min(yMax, val)) - yMin) / ySpan) * plotH;
+
+    const svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'trend-svg', role: 'img', 'aria-label': '近7天备份成功率折线图' });
+    const defs = svgEl('defs');
+    const grad = svgEl('linearGradient', { id: 'trendAreaGrad', x1: '0', y1: '0', x2: '0', y2: '1' });
+    grad.append(
+      svgEl('stop', { offset: '0%', 'stop-color': '#1a78eb', 'stop-opacity': '0.24' }),
+      svgEl('stop', { offset: '100%', 'stop-color': '#1a78eb', 'stop-opacity': '0.02' })
+    );
+    defs.append(grad);
+    svg.append(defs);
+
+    const ticks = [yMax, Math.round(yMin + ySpan * 0.67), Math.round(yMin + ySpan * 0.33), yMin];
+    for (const tk of ticks) {
+      const y = yOf(tk);
+      svg.append(svgEl('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'trend-grid-line' }));
+      const lbl = svgEl('text', { x: padL - 6, y: y + 4, 'text-anchor': 'end', class: 'trend-axis-label' });
+      lbl.textContent = tk + '%';
+      svg.append(lbl);
+    }
+
+    const pts = [];
+    days.forEach((d, i) => {
+      const x = xOf(i);
+      const xLbl = svgEl('text', { x, y: H - 6, 'text-anchor': 'middle', class: 'trend-axis-label' });
+      xLbl.textContent = d.label;
+      svg.append(xLbl);
+      if (typeof d.rate === 'number' && Number.isFinite(d.rate)) {
+        pts.push({ idx: i, x, y: yOf(d.rate), d });
+      }
+    });
+
+    if (pts.length >= 2) {
+      const linePath = pts.map((p, k) => (k === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+      const areaPath = linePath + ' L' + pts[pts.length - 1].x.toFixed(1) + ',' + (padT + plotH).toFixed(1) + ' L' + pts[0].x.toFixed(1) + ',' + (padT + plotH).toFixed(1) + ' Z';
+      svg.append(svgEl('path', { d: areaPath, class: 'trend-area' }));
+      svg.append(svgEl('path', { d: linePath, class: 'trend-line' }));
+    }
+
+    pts.forEach((p, idx) => {
+      const isLast = idx === pts.length - 1;
+      svg.append(svgEl('circle', { cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: isLast ? 5 : 4, class: isLast ? 'trend-dot latest' : 'trend-dot' }));
+      if (isLast) {
+        svg.append(svgEl('rect', { x: (p.x - 24).toFixed(1), y: (p.y - 24).toFixed(1), width: 48, height: 18, rx: 5, class: 'trend-val-pill' }));
+        const t = svgEl('text', { x: p.x.toFixed(1), y: (p.y - 11.5).toFixed(1), class: 'trend-val-pill-text' });
+        t.textContent = p.d.rate.toFixed(1) + '%';
+        svg.append(t);
+      } else {
+        const t = svgEl('text', { x: p.x.toFixed(1), y: (p.y - 10).toFixed(1), class: 'trend-val' });
+        t.textContent = p.d.rate.toFixed(1) + '%';
+        svg.append(t);
+      }
+    });
+
+    chartBox.append(svg);
+  }
 
   for (const day of days) {
-    const tile = node('div', undefined, day.isAnchor ? 'day has-shot' : 'day');
-    tile.append(node('b', day.label), node('small', day.isAnchor ? '实时快照' : '未接入'));
+    const hasVal = typeof day.rate === 'number' && Number.isFinite(day.rate);
+    const isLive = day.source === 'live_snapshot';
+    const tile = node('div', undefined, isLive ? 'day has-shot' : 'day');
+    const srcText = isLive ? '实时快照' : day.source === 'nas_receipts' ? 'NAS回执' : '无记录';
+    tile.title = day.date + (hasVal ? ' · 到位 ' + day.delivered + '/' + day.total + ' (' + day.rate.toFixed(1) + '%) · ' + srcText : ' · 暂无已发布回执');
+    tile.append(
+      node('b', day.label),
+      node('span', hasVal ? day.rate.toFixed(1) + '%' : '—'),
+      node('small', hasVal ? (day.delivered + '/' + day.total + ' · ' + srcText) : '无记录')
+    );
     container.append(tile);
+  }
+}
+
+function renderSmbBrowser() {
+  const tabsEl = $('smb-tabs');
+  const tbody = $('smb-entries');
+  const emptyEl = $('smb-empty');
+  const healthEl = $('smb-health');
+  const uncEl = $('smb-active-unc');
+  if (!tabsEl || !tbody) return;
+
+  tabsEl.replaceChildren();
+  tbody.replaceChildren();
+  const browser = data && data.smb_browser;
+  const shares = (browser && Array.isArray(browser.shares)) ? browser.shares : [];
+
+  if (!shares.length) {
+    emptyEl.hidden = false;
+    emptyEl.replaceChildren(
+      icon('ic-hard-drives'),
+      node('strong', 'SMB 目录实时快照暂未就绪'),
+      node('p', '等待 ops253 采集器生成 smb-browser.json（每分钟自动刷新）。')
+    );
+    if (healthEl) {
+      healthEl.className = 'smb-health warn';
+      healthEl.replaceChildren(icon('ic-warning-circle'), node('span', '尚未采集到三端 SMB 目录列表。'));
+    }
+    return;
+  }
+
+  if (!shares.some(s => s.id === activeSmbShareId)) activeSmbShareId = shares[0].id;
+  const activeShare = shares.find(s => s.id === activeSmbShareId) || shares[0];
+  if (uncEl) uncEl.textContent = activeShare.unc || activeShare.id;
+  if ($('smb-provenance') && browser.sampled) {
+    $('smb-provenance').textContent = '来源：ops253 只读挂载实时采样（' + formatSampled(browser.sampled) + '）· 三端共享路径直览，不暴露任何凭据';
+  }
+
+  for (const s of shares) {
+    const btn = node('button', undefined, 'smb-tab');
+    btn.type = 'button';
+    btn.role = 'tab';
+    btn.setAttribute('aria-selected', String(s.id === activeShare.id));
+    btn.append(node('span', s.name + (s.id === 'win254' ? '' : ' (' + s.unc.replace(/^\\\\([^\\]+)\\.*$/, '$1') + ')')));
+    btn.onclick = () => {
+      activeSmbShareId = s.id;
+      selectedSmbEntryName = null;
+      renderSmbBrowser();
+    };
+    tabsEl.append(btn);
+  }
+
+  // Health box
+  if (healthEl) {
+    healthEl.replaceChildren();
+    if (activeShare.healthy) {
+      healthEl.className = 'smb-health';
+      healthEl.append(
+        icon('ic-check-circle'),
+        node('div', '目录检查：' + activeShare.name + '（' + activeShare.unc + '）结构完整，共 ' + activeShare.dir_count + ' 个资产目录，其中 ' + activeShare.recent_verified_dirs + ' 个可见有效回执；剩余 ' + formatSize(activeShare.free) + '。')
+      );
+    } else {
+      healthEl.className = 'smb-health warn';
+      healthEl.append(
+        icon('ic-warning-circle'),
+        node('div', activeShare.mounted ? '目录为空或未发现有效资产目录，请核查挂载路径。' : '存储挂载异常（未检测到 CIFS 挂载），请核查 ops253 挂载状态。')
+      );
+    }
+  }
+
+  const entries = activeShare.entries || [];
+  if (!entries.length) {
+    emptyEl.hidden = false;
+    emptyEl.replaceChildren(icon('ic-hard-drives'), node('strong', '当前共享目录下无可读条目'));
+    renderSmbChildren(activeShare, null);
+    return;
+  }
+  emptyEl.hidden = true;
+
+  if (!selectedSmbEntryName || !entries.some(e => e.name === selectedSmbEntryName)) {
+    const firstAsset = entries.find(e => e.kind === 'dir' && !e.name.startsWith('#')) || entries[0];
+    selectedSmbEntryName = firstAsset ? firstAsset.name : null;
+  }
+
+  for (const entry of entries) {
+    const tr = node('tr', undefined, entry.name === selectedSmbEntryName ? 'smb-active' : '');
+    const tdName = node('td');
+    const nameWrap = node('span', undefined, 'smb-folder-cell');
+    nameWrap.append(node('span', '', entry.kind === 'dir' ? 'smb-folder-dot' : 'smb-folder-dot file'), node('span', entry.name));
+    tdName.append(nameWrap);
+
+    const tdTime = node('td', entry.mtime || '—');
+    const tdKind = node('td', entry.kind === 'dir' ? '文件夹' : '文件');
+    const tdLatest = node('td');
+    const kids = entry.children || [];
+    const verifiedKid = kids.find(c => c.has_receipt);
+    const partialKid = kids.find(c => c.is_partial);
+    if (entry.name.startsWith('#')) {
+      tdLatest.append(node('span', '系统目录', 'badge neutral'));
+    } else if (verifiedKid) {
+      tdLatest.append(node('span', verifiedKid.name + ' · 有效回执', 'badge good'));
+    } else if (partialKid) {
+      tdLatest.append(node('span', '仅未完成 .partial', 'badge warn'));
+    } else if (kids.length) {
+      tdLatest.append(node('span', kids[0].name, 'badge neutral'));
+    } else {
+      tdLatest.append(node('span', '空目录', 'badge neutral'));
+    }
+
+    tr.append(tdName, tdTime, tdKind, tdLatest);
+    tr.onclick = () => {
+      selectedSmbEntryName = entry.name;
+      renderSmbBrowser();
+    };
+    tbody.append(tr);
+  }
+
+  const chosen = entries.find(e => e.name === selectedSmbEntryName) || null;
+  renderSmbChildren(activeShare, chosen);
+}
+
+function renderSmbChildren(share, entry) {
+  const titleEl = $('smb-children-title');
+  const listEl = $('smb-children-list');
+  if (!titleEl || !listEl) return;
+  listEl.replaceChildren();
+  if (!entry) {
+    titleEl.textContent = '点击左侧目录查看最近日期';
+    return;
+  }
+  titleEl.textContent = share.unc + '\\' + entry.name;
+  const kids = entry.children || [];
+  if (!kids.length) {
+    listEl.append(node('p', '该目录下暂无子目录或未检测到近期日期记录。', 'muted'));
+    return;
+  }
+  for (const c of kids) {
+    const row = node('div', undefined, 'smb-child-row');
+    row.append(node('b', c.name));
+    const meta = node('span', undefined, 'smb-child-meta');
+    meta.append(node('span', c.mtime || ''));
+    if (c.has_receipt) meta.append(node('span', '已发布', 'badge good'));
+    else if (c.is_partial) meta.append(node('span', '未完成', 'badge warn'));
+    row.append(meta);
+    listEl.append(row);
+  }
+}
+
+async function openWebhookDialog() {
+  $('wh-error').textContent = '';
+  $('wh-url').value = '';
+  try {
+    const cfg = await api('webhook');
+    $('wh-enabled').checked = Boolean(cfg.enabled);
+    $('wh-status-text').textContent = (cfg.enabled ? '已启用' : '已停用') + ' · 每天 ' + (cfg.send_time || '08:50');
+    $('wh-masked-url').textContent = cfg.masked_url || '尚未配置';
+    $('wh-save-btn').disabled = !cfg.writable;
+    if (!cfg.writable) {
+      $('wh-error').textContent = '当前容器未以读写模式挂载推送配置目录，仅支持查看状态。';
+    }
+    if (cfg.last_test) {
+      $('wh-last-test').textContent = '最近测试：' + formatSampled(cfg.last_test.at) + ' · ' + (cfg.last_test.ok ? '发送成功 (errcode=0)' : '失败 (' + (cfg.last_test.errmsg || cfg.last_test.errcode) + ')');
+    } else {
+      $('wh-last-test').textContent = cfg.updated_at ? '上次保存：' + formatSampled(cfg.updated_at) : '';
+    }
+    $('webhookdialog').showModal();
+  } catch (e) {
+    showToast('读取推送设置失败：' + e.message);
   }
 }
 
@@ -496,7 +802,7 @@ function renderAssets() {
   }
   for (const [text, title] of [
     ['最近副本', '各目标中最新有效/记录日期'],
-    ['恢复与人工验收', '原生技术恢复与人工业务验收独立展示'],
+    ['恢复', '仅展示原生技术恢复验证结果'],
     ['操作', '打开右侧详情抽屉']
   ]) {
     const th = node('th', text);
@@ -566,24 +872,10 @@ function renderAssets() {
       };
 
       const line = node('span', undefined, 'copy-line');
-      if (!copy) {
-        cellBtn.classList.add('neutral-icon');
-        line.append(icon('ic-minus-circle'), '—');
-        cellBtn.append(line, node('small', '未配置'));
-      } else if (copy.ok) {
-        cellBtn.classList.add('good-icon');
-        line.append(icon('ic-check-circle'), shortDate(copy.date));
-        const sub = String(copy.verification || '').startsWith('md5_verified') ? 'MD5已复核' : '已到位';
-        cellBtn.append(line, node('small', sub));
-      } else if (copy.pending_md5) {
-        cellBtn.classList.add('warn-icon');
-        line.append(icon('ic-clock'), shortDate(copy.date));
-        cellBtn.append(line, node('small', '待 MD5'));
-      } else {
-        cellBtn.classList.add('bad-icon');
-        line.append(icon('ic-warning-circle'), copy.date ? shortDate(copy.date) : '—');
-        cellBtn.append(line, node('small', copy.note === '记录过期' ? '记录过期' : '无有效记录'));
-      }
+      const view = MatrixStatus.cellView(copy);
+      cellBtn.classList.add(view.cls);
+      line.append(icon(view.icon), view.date ? shortDate(view.date) : '—');
+      cellBtn.append(line, node('small', view.sub));
       td.append(cellBtn);
       tr.append(td);
     }
@@ -591,14 +883,10 @@ function renderAssets() {
     tr.append(node('td', latestCopyDate(a), 'latest'));
 
     const restoreTd = node('td');
-    const rStack = node('div', undefined, 'restore-stack');
     const rInfo = restoreBadgeInfo(a.restore);
     const rBadge = node('span', undefined, 'badge ' + rInfo.cls);
     rBadge.append(icon(rInfo.ic), rInfo.text);
-    const manual = acceptanceBadge(a);
-    const mBadge = node('span', manual.text, 'manual-pill ' + manual.kind);
-    rStack.append(rBadge, mBadge);
-    restoreTd.append(rStack);
+    restoreTd.append(rBadge);
     tr.append(restoreTd);
 
     const actTd = node('td');
@@ -614,6 +902,51 @@ function renderAssets() {
 
     tbody.append(tr);
   });
+}
+
+function openMd5Dialog() {
+  if (!data) return;
+  renderMd5Dialog();
+  $('md5dialog').showModal();
+}
+
+function renderMd5Dialog() {
+  const targetIds = deriveColumns(data);
+  const assets = data.assets || [];
+  const sum = MatrixStatus.md5Summary(assets, targetIds);
+  const summary = $('md5-summary');
+  summary.replaceChildren(
+    node('span', '资产 ' + assets.length + ' 项 · 三端格子 ' + sum.total + ' 个', 'md5-count'),
+    node('span', '已核验 ' + sum.verified, 'badge good'),
+    node('span', '未执行 ' + sum.pending, 'badge neutral'),
+    node('span', '无有效记录 ' + sum.missing, 'badge bad')
+  );
+
+  const head = $('md5-head');
+  head.replaceChildren();
+  const hr = node('tr');
+  hr.append(node('th', '资产'));
+  for (const tid of targetIds) hr.append(node('th', targetLabel(tid, true)));
+  head.append(hr);
+
+  const body = $('md5-body');
+  body.replaceChildren();
+  for (const a of assets) {
+    const tr = node('tr');
+    const nameTd = node('td');
+    nameTd.append(node('b', a.name || a.id), node('small', a.host || 'IP 未采集'));
+    tr.append(nameTd);
+    for (const tid of targetIds) {
+      const copy = (a.copies || []).find(c => c.target === tid);
+      const v = MatrixStatus.md5View(copy);
+      const td = node('td');
+      const cls = v.state === 'verified' ? 'good' : (v.state === 'pending' ? 'neutral' : 'bad');
+      td.append(node('span', v.label, 'badge ' + cls));
+      td.append(node('small', v.state === 'verified' ? '核验时间 ' + v.time : '核验时间 —'));
+      tr.append(td);
+    }
+    body.append(tr);
+  }
 }
 
 function openDrawer(asset, targetId) {
@@ -656,7 +989,7 @@ function renderDrawer(asset) {
   tabStrip.replaceChildren();
   const tabs = [
     ['result', '备份结果'],
-    ['restore', '恢复与验收'],
+    ['restore', '恢复'],
     ['history', '历史记录'],
     ['logs', '执行日志']
   ];
@@ -810,73 +1143,8 @@ function renderDrawerRestore(container, asset) {
   addMetaRow(rdl, '状态码', (asset.restore && asset.restore.status) || 'not_tested');
   addMetaRow(rdl, '完成时间', (asset.restore && asset.restore.finished) || '尚无完成时间');
   addMetaRow(rdl, '验证范围', (asset.restore && asset.restore.scope) || '尚无范围说明', true);
-  rCard.append(rHead, rdl, node('p', '来源：snapshot.json restore 字段（由隔离恢复观测脚本输出，不与人工验收互相覆盖）。', 'source-note'));
+  rCard.append(rHead, rdl, node('p', '来源：snapshot.json restore 字段（由隔离恢复观测脚本输出）。当前前端仅展示原生技术恢复结果。', 'source-note'));
   container.append(rCard);
-
-  // Manual acceptance card
-  const mCard = node('section', undefined, 'detail-card');
-  const mHead = node('div', undefined, 'detail-title');
-  const mH3 = node('h3');
-  mH3.append(icon('ic-user-check'), '人工业务验收（独立追加记录）');
-  const manual = acceptanceBadge(asset);
-  mHead.append(mH3, node('span', manual.text, 'badge ' + manual.kind));
-  mCard.append(mHead);
-
-  const reviews = asset.manual_acceptance || [];
-  if (!reviews.length) {
-    mCard.append(node('p', '暂无人工业务验收记录。自动技术恢复通过不代表业务验收通过。', 'muted'));
-  } else {
-    const list = node('div', undefined, 'acceptance-list');
-    for (const r of reviews.slice(0, 10)) {
-      const rec = r.record || {};
-      const entry = node('div', undefined, 'acceptance-entry');
-      const eHead = node('div', undefined, 'acceptance-entry-head');
-      eHead.append(
-        node('strong', '批次 ' + (rec.backup_run || '未知') + ' · 验收人 ' + (r.tester || '未知')),
-        node('span', rec.status === 'passed' ? '验收通过' : '验收未通过', 'badge ' + (rec.status === 'passed' ? 'good' : 'bad'))
-      );
-      entry.append(
-        eHead,
-        node('p', '测试时间：' + (rec.tested_at || '—') + ' ｜ 范围：' + (rec.scope || '—')),
-        node('p', '步骤：' + (rec.steps || '—')),
-        node('p', '实际结果：' + (rec.actual || '—')),
-        node('p', '证据位置：' + (rec.evidence || '—') + ' ｜ 未测范围：' + (rec.untested || '—'))
-      );
-      list.append(entry);
-    }
-    mCard.append(list);
-  }
-
-  const actions = node('div', undefined, 'acceptance-actions');
-  actions.append(node('small', '来源：PostgreSQL acceptance_events 追加表', 'muted'));
-  if (current && current.role === 'admin') {
-    const btn = node('button', '登记人工业务验收', 'button primary');
-    btn.type = 'button';
-    btn.onclick = () => {
-      const runs = [...new Set((asset.copies || []).filter(c => c.arrived && c.run).map(c => c.run))];
-      if (!runs.length) {
-        showToast('当前资产没有已到位的核实批次，暂不能登记人工验收');
-        return;
-      }
-      if (data && data.stale) {
-        showToast('自动证据已过期，请先刷新采集后再登记人工验收');
-        return;
-      }
-      $('acceptform').reset();
-      $('acceptasset').value = asset.id;
-      $('acceptrun').replaceChildren(...runs.map(run => {
-        const o = node('option', run);
-        o.value = run;
-        return o;
-      }));
-      $('accepttime').value = new Date().toISOString();
-      $('accepterror').textContent = '';
-      $('acceptdialog').showModal();
-    };
-    actions.append(btn);
-  }
-  mCard.append(actions);
-  container.append(mCard);
 }
 
 function renderDrawerHistory(container, asset) {
@@ -943,9 +1211,9 @@ function exportCsv() {
   const cols = deriveColumns(data);
   const rows = getFilteredAssets();
   const lines = [];
-  lines.push(['数据来源', '/api/board (snapshot.json 实时投影 + PostgreSQL 人工验收)', '采样时间', data.sampled || '未采集', '证据状态', data.stale ? '已过期' : '有效'].map(csvCell).join(','));
-  lines.push(['统计口径', '副本到位/大小核对/MD5/原生恢复/人工验收分别计量；筛选条件=' + $('filter').value + '；关键字=' + ($('search').value.trim() || '无')].map(csvCell).join(','));
-  const head = ['资产ID', '资产名称', 'IP', '类型', '系统', '保护状态', ...cols.map(t => targetLabel(t, false)), '最近副本', '原生恢复', '人工业务验收', '异常说明'];
+  lines.push(['数据来源', '/api/board (snapshot.json 实时投影)', '采样时间', data.sampled || '未采集', '证据状态', data.stale ? '已过期' : '有效'].map(csvCell).join(','));
+  lines.push(['统计口径', '副本到位/大小核对/MD5/原生恢复分别计量；筛选条件=' + $('filter').value + '；关键字=' + ($('search').value.trim() || '无')].map(csvCell).join(','));
+  const head = ['资产ID', '资产名称', 'IP', '类型', '系统', '保护状态', ...cols.map(t => targetLabel(t, false)), '最近副本', '恢复', '异常说明'];
   lines.push(head.map(csvCell).join(','));
   for (const a of rows) {
     const copyTexts = cols.map(tid => {
@@ -953,14 +1221,12 @@ function exportCsv() {
       if (!c) return '未配置';
       return (c.date || '无记录') + ' (' + c.note + ')';
     });
-    const manual = acceptanceBadge(a);
     lines.push([
       a.id, a.name, a.host || '', a.type || '', a.os || '',
       stateBadgeInfo(a).text,
       ...copyTexts,
       latestCopyDate(a),
       restoreBadgeInfo(a.restore).text,
-      manual.text,
       (a.issues || []).join('；')
     ].map(csvCell).join(','));
   }
@@ -1084,6 +1350,50 @@ $('closeglossary').onclick = () => $('glossarydialog').close();
 $('okglossary').onclick = () => $('glossarydialog').close();
 
 $('closeusers').onclick = () => $('usersdialog').close();
+if ($('webhook-btn')) $('webhook-btn').onclick = openWebhookDialog;
+if ($('md5-btn')) $('md5-btn').onclick = openMd5Dialog;
+if ($('closemd5')) $('closemd5').onclick = () => $('md5dialog').close();
+if ($('okmd5')) $('okmd5').onclick = () => $('md5dialog').close();
+if ($('closewebhook')) $('closewebhook').onclick = () => $('webhookdialog').close();
+if ($('cancelwebhook')) $('cancelwebhook').onclick = () => $('webhookdialog').close();
+if ($('webhookform')) {
+  $('webhookform').onsubmit = async e => {
+    e.preventDefault();
+    $('wh-error').textContent = '';
+    try {
+      const payload = { enabled: $('wh-enabled').checked };
+      const rawUrl = $('wh-url').value.trim();
+      if (rawUrl) payload.webhook_url = rawUrl;
+      const res = await api('webhook', payload);
+      const cfg = res.webhook || {};
+      $('wh-url').value = '';
+      $('wh-status-text').textContent = (cfg.enabled ? '已启用' : '已停用') + ' · 每天 ' + (cfg.send_time || '08:50');
+      $('wh-masked-url').textContent = cfg.masked_url || '尚未配置';
+      showToast('推送设置已保存（每天 08:50 生效）');
+    } catch (err) {
+      $('wh-error').textContent = err.message;
+    }
+  };
+}
+if ($('wh-test-btn')) {
+  $('wh-test-btn').onclick = async () => {
+    $('wh-error').textContent = '';
+    $('wh-test-btn').disabled = true;
+    try {
+      const res = await api('webhook/test', {});
+      if (res.ok) {
+        $('wh-last-test').textContent = '最近测试：刚刚 · 发送成功 (errcode=0)';
+        showToast('测试消息已推送到企业微信群');
+      } else {
+        $('wh-error').textContent = '企业微信返回失败：errcode=' + res.errcode + ' ' + (res.errmsg || '');
+      }
+    } catch (err) {
+      $('wh-error').textContent = err.message;
+    } finally {
+      $('wh-test-btn').disabled = false;
+    }
+  };
+}
 $('manage').onclick = async () => {
   try {
     await loadUsers();
