@@ -168,5 +168,25 @@ class ExtrasFailureTests(unittest.TestCase):
             self.assertEqual(export_feed.main([]), 0)
 
 
+class WebhookSummaryNoMd5Tests(unittest.TestCase):
+    def test_build_summary_text_has_no_md5_and_lists_failure_details(self):
+        import webhook_settings
+        board = {
+            "summary": {"total": 3, "delivered": 2, "attention": 1, "pending_verification": 1},
+            "assets": [
+                {"id": "185", "name": "GitLab 185", "state": "protected", "issues": []},
+                {"id": "247", "name": "GitLab 247", "state": "pending_verification", "issues": []},
+                {"id": "nexus51", "name": "Nexus 51", "state": "attention", "issues": ["nas243：缺少有效完成记录"]},
+            ],
+        }
+        txt = webhook_settings.build_summary_text(board, test_prefix=True)
+        self.assertIn("需备份数量：3 项", txt)
+        self.assertIn("已备份数量：2 项（66.7%）", txt)
+        self.assertIn("失败数量：1 项", txt)
+        self.assertIn("- Nexus 51：nas243：缺少有效完成记录", txt)
+        self.assertNotIn("MD5", txt)
+        self.assertNotIn("md5", txt)
+
+
 if __name__ == "__main__":
     unittest.main()

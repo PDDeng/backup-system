@@ -130,20 +130,24 @@ def build_summary_text(board: dict, test_prefix: bool = False) -> str:
     assets = board.get("assets") or []
     total = int(s.get("total") or len(assets))
     delivered = int(s.get("delivered") or 0)
-    pending = [a["name"] for a in assets if a.get("state") == "pending_verification"]
-    attention = [a["name"] for a in assets if a.get("state") == "attention"]
-    restored = [a["name"] for a in assets if (a.get("restore") or {}).get("status") == "passed"]
+    failed_lines = []
+    for a in assets:
+        if a.get("state") == "attention":
+            issues = a.get("issues") or []
+            reason = "；".join(str(x) for x in issues) if issues else "无有效备份结果"
+            failed_lines.append(f"- {a.get('name', a.get('id', '未知资产'))}：{reason}")
     stamp = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date().isoformat()
     rate = f"{(delivered / total * 100):.1f}%" if total > 0 else "0.0%"
     title = f"【核心资产备份测试推送｜{stamp}】" if test_prefix else f"【核心资产备份日报｜{stamp}】"
     lines = [
         title,
-        f"总体结果：成功到位 {delivered}/{total}（{rate}），失败/需处理 {len(attention)} 项",
-        f"失败/需处理：{'、'.join(attention) if attention else '无'}",
-        f"已到位待MD5复核：{len(pending)}项" + (f"（{'、'.join(pending)}）" if pending else ""),
-        f"原生恢复通过：{'、'.join(restored) if restored else '尚无'}",
-        "详情：http://192.168.1.212:8100/",
+        f"需备份数量：{total} 项",
+        f"已备份数量：{delivered} 项（{rate}）",
+        f"失败数量：{len(failed_lines)} 项",
+        "失败明细：" + ("" if failed_lines else "无"),
     ]
+    lines.extend(failed_lines)
+    lines.append("详情：http://192.168.1.212:8100/")
     return "\n".join(lines)
 
 
