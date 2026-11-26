@@ -1,0 +1,15 @@
+{
+  "id": "oracle46",
+  "target_ip": "10.10.10.251",
+  "target_hostname": "REPLACE-TEST-HOST",
+  "sid": "RT46",
+  "root": "D:\\oracle-restore\\oracle46_RUN_01",
+  "oracle_home": "D:\\app\\oracle\\product\\11.2.0\\dbhome_1",
+  "source": "\\\\10.10.11.243\\资源备份\\oracle01_10.10.10.46_dev研发环境数据库\\2026-11-26\\REPLACE_RUN",
+  "mode": "sample",
+  "ddl_reviewed": false,
+  "schema_map": {"REPLACE_SCHEMA": "REST_SAMPLE"},
+  "source_tablespaces": ["REPLACE_TABLESPACE"],
+  "tablespace": "REST_DATA",
+  "tables": [{"owner": "REST_SAMPLE", "table": "REPLACE_TABLE", "minimum_rows": 1}]
+}

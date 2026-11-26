@@ -1,0 +1,11 @@
+{
+  "id": "oracle41",
+  "target_ip": "10.10.10.251",
+  "target_hostname": "REPLACE-TEST-HOST",
+  "sid": "RT41",
+  "root": "D:\\oracle-restore\\oracle41_RUN_01",
+  "oracle_home": "D:\\app\\oracle\\product\\11.2.0\\dbhome_2",
+  "source": "\\\\10.10.11.243\\资源备份\\oracle02_10.10.10.41_uat测试环境数据库\\2026-11-26\\REPLACE_RUN",
+  "mode": "rman",
+  "tables": [{"owner": "REPLACE_SCHEMA", "table": "REPLACE_TABLE", "minimum_rows": 1}]
+}
