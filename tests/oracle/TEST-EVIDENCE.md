@@ -17,3 +17,12 @@
 未执行：251真实 Oracle 安装/启动、impdp、RMAN DUPLICATE、数据库开库及业务验收；不把本测试表作为恢复成功记录。不部署生产定时任务，不连接生产46/41，不扫描大文件 MD5。真实演练须由负责人审阅计划/备份清单并准备专用测试实例后安排。
 
 Issue #7 的 Oracle46 首次每日备份证据已另在 GitHub 评论记录，仅只读复核 ops 回执与 NAS243/254 目录；不混入本地单测，也不作为 Oracle 恢复通过证据。
+
+## r2 回归（2026-11-26）
+
+- Windows Python3.9：**15/15 tests OK**；ops Linux 独立临时目录运行同一测试：**15/15 OK，exit=0**。
+- 真实 Windows PowerShell2：**16/16 assertions PASS**；PS5.1：**16/16 PASS**。新增非 Gregorian 当前文化下的 invariant UTC 格式核验，无7位小数，明确 `+00:00`。
+- 新回归覆盖 `.NET ...8821433Z`、带 `+08:00` 的7位小数、旧回执时间比较、非法无时区/日期拒绝；按 `export_feed.py` 原样 `fromisoformat(record['sampled'])` 和标准字段投影检查，不向实际看板发布夹具。
+- C盘专用子目录、拒绝基础目录/Windows目录/目录逃逸、跨盘 OracleHome、46逻辑源版本1与显式目标版本4分离、41 RMAN拒绝降版本均覆盖。新模板选 `C:\core-backup\restore\<资产_演练号>` 和 `C:\app\oracle\product\11.2.0\dbhome_1`。
+- 非阻塞建议一并收口：SQLFILE-only 独立 scope、UDE错误识别、完整必需计划文件哈希白名单。原生 .NET2 helper 无变化。
+- 无251/46/41连接；无真实 impdp/RMAN 执行或状态伪造；仅私有临时文件单测与代码交付。

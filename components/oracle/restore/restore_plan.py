@@ -18,6 +18,7 @@ IDS = {"oracle46": "11.2.0.1.0", "oracle41": "11.2.0.4.0"}
 IDENT = re.compile(r"^[A-Z][A-Z0-9_]{0,29}$")
 TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 HEX = re.compile(r"^[a-f0-9]{64}$")
+RESTORE_ROOTS = ("c:\\core-backup\\restore", "d:\\oracle-restore")
 
 
 def require(ok, message):
@@ -31,13 +32,15 @@ def identifier(value):
 
 
 def local_path(value):
-    require(isinstance(value, str) and re.fullmatch(r"[D-Z]:\\[A-Za-z0-9_\\.-]+", value),
-            "local absolute ASCII path required (D:..Z:)")
+    require(isinstance(value, str) and re.fullmatch(r"[C-Z]:\\[A-Za-z0-9_\\.-]+", value),
+            "local absolute ASCII path required (C:..Z:)")
     require(all(p not in ("", ".", "..") for p in value[3:].split("\\")), "invalid path segment")
     return ntpath.normpath(value)
 
 
 def below(path, root):
+    if ntpath.splitdrive(path)[0].lower() != ntpath.splitdrive(root)[0].lower():
+        return False
     return ntpath.commonpath([path.lower(), root.lower()]) == root.lower() and path.lower() != root.lower()
 
 
@@ -50,9 +53,11 @@ def validate(config, manifest):
     sid = config["sid"]
     require(sid == ("RT46" if asset == "oracle46" else "RT41"), "dedicated test SID required")
     root = local_path(config["root"])
-    require(root.lower().startswith("d:\\oracle-restore\\"), "dedicated D:\\oracle-restore child required")
+    require(any(below(root, base) for base in RESTORE_ROOTS), "dedicated C:\\core-backup\\restore or D:\\oracle-restore child required")
     home = local_path(config["oracle_home"])
     require(not below(root, home) and not below(home, root) and root.lower() != home.lower(), "home/root overlap")
+    target_version = config.get("target_version", IDS[asset])
+    require(target_version in (("11.2.0.1.0", "11.2.0.4.0") if asset == "oracle46" else ("11.2.0.4.0",)), "unsupported target Oracle version")
     source = config["source"]
     require(isinstance(source, str) and source.startswith("\\\\10.10.11.243\\资源备份\\"), "approved source NAS243 only")
     parts = source[2:].split("\\")
@@ -124,10 +129,12 @@ declare n number; begin
  if n<>1 then raise_application_error(-20004,'JOBS_NOT_DISABLED'); end if;
 end;
 /
-""" % (c["sid"], c["target_hostname"].upper(), IDS[c["id"]], c["sid"], root, root)
+""" % (c["sid"], c["target_hostname"].upper(), c.get("target_version", IDS[c["id"]]), c["sid"], root, root)
 
 
 def plan(c, m):
+    c = dict(c)
+    c.setdefault("target_version", IDS[c["id"]])
     root, sid = validate(c, m)
     stage = root + "\\stage"
     result = {"guard.sql": guard_sql(c) + "exit success\n"}
@@ -196,6 +203,16 @@ def output_lock(directory, asset):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def parse_timestamp(value):
+    """RFC3339, including .NET round-trip 100ns fractions, on Python 3.8+."""
+    require(isinstance(value, str), "timestamp must be a string")
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})", value)
+    require(match is not None, "timezone-qualified ISO timestamp required")
+    fraction = ("." + match[2][:6]) if match[2] else ""
+    zone = "+00:00" if match[3] == "Z" else match[3]
+    return dt.datetime.fromisoformat(match[1] + fraction + zone).astimezone(dt.timezone.utc)
+
+
 def publish(evidence, out_dir, evidence_dir=None):
     """Import a completed worker receipt only; does not invent missing phases."""
     asset = evidence.get("id")
@@ -205,12 +222,24 @@ def publish(evidence, out_dir, evidence_dir=None):
     require(evidence.get("status") in ("passed", "failed", "partial"), "invalid status")
     require(HEX.fullmatch(evidence.get("plan_sha256", "")) is not None, "plan binding missing")
     require(evidence.get("finished") and evidence.get("scope"), "result metadata missing")
-    finished = dt.datetime.fromisoformat(evidence["finished"].replace("Z", "+00:00"))
-    require(finished.tzinfo is not None, "timezone required")
+    finished = parse_timestamp(evidence["finished"])
+    result = dict(evidence)
+    result["finished"] = finished.isoformat(timespec="microseconds")
+    # sampled is the observation/publication time; finished remains actual restore time.
+    result["sampled"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    untested = evidence.get("untested", [])
+    require(isinstance(untested, list) and all(isinstance(x, str) and x.strip() for x in untested), "untested must be a string array")
+    result["untested"] = list(dict.fromkeys(untested + ["business_acceptance", "application_connectivity"]))
+    mode = evidence.get("mode", "")
+    if asset == "oracle46" and (mode == "sample" or "sample" in evidence["scope"].lower()):
+        result["untested"] += [x for x in ("full_database_restore", "tables_outside_selected_schemas") if x not in result["untested"]]
     phases = evidence.get("phases", {})
     required = ["source_sha256", "isolation", "native_restore", "table_checks"]
     if asset == "oracle41":
         required.append("rman_validate")
+    result["untested"] += [name for name in required if name not in phases and name not in result["untested"]]
+    if asset == "oracle46" and "excluded_environment_metadata" not in result["untested"]:
+        result["untested"].append("excluded_environment_metadata")
     if evidence["status"] == "passed":
         require(all(isinstance(phases.get(p), dict) and phases[p].get("status") == "passed" and phases[p].get("log") for p in required), "missing restore evidence")
         require(evidence_dir is not None, "local evidence directory required for passed receipt")
@@ -228,12 +257,12 @@ def publish(evidence, out_dir, evidence_dir=None):
     with output_lock(out, asset):
         if dest.exists():
             previous = json.loads(dest.read_text(encoding="utf-8"))
-            previous_time = dt.datetime.fromisoformat(previous["finished"].replace("Z", "+00:00"))
+            previous_time = parse_timestamp(previous["finished"])
             require(previous_time.tzinfo is not None and finished >= previous_time, "older receipt must not replace newer observation")
         temp = out / (asset + "." + uuid.uuid4().hex + ".tmp")
         fd = os.open(str(temp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(json.dumps(evidence, ensure_ascii=True, indent=2))
+            stream.write(json.dumps(result, ensure_ascii=True, indent=2))
             stream.flush(); os.fsync(stream.fileno())
         temp.replace(dest)
     return dest

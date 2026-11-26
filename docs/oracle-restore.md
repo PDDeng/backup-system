@@ -20,8 +20,8 @@
 
 1. 核对 251 确为本次专用 VM；备份源 NAS 账号只授予读取权限。管理员在本机受控会话建立 SMB 连接，密码交互输入，不进入配置、命令行或仓库。不要断开其他会话绕过 1219。
 2. 网络侧只允许管理端和 NAS243 的必要流量；拒绝测试机访问生产数据库端口。工具不会为“连通”而修改防火墙、监听器或 TrustedHosts。数据库不对外提供测试访问端口，业务验收另行安排。
-3. Oracle46 二进制必须为 **Windows x64 11.2.0.1.0**；Oracle41 为 **Windows x64 11.2.0.4.0**。Oracle41 的 RMAN 备份不能用 Linux Oracle 容器代替恢复。安装介质及授权由管理员提供。
-4. 独立运行根目录 `D:\oracle-restore\oracle46_<演练号>` 或 `oracle41_<演练号>`，不使用生产数据目录、网络盘、junction。空间至少覆盖本地备份暂存 + 恢复数据 + 临时/归档/redo 和余量；按清单总字节和源库实际数据规模核算，不能只按压缩包大小估算。
+3. 备份版本和目标版本分开：46 的清单 `version=11.2.0.1.0`，逻辑导入可明确选择 Windows x64 `target_version=11.2.0.1.0` 或 `11.2.0.4.0`；41 的 RMAN 则保持源/目标均为 **11.2.0.4.0**。当前251已安装 `C:\app\oracle\product\11.2.0\dbhome_1\BIN`，配置的 `oracle_home` 填其上一级，不含 BIN，两份新模板均明确选择目标11.2.0.4.0。逻辑向较新版本导入遵循 [Oracle 11g Data Pump 版本规则](https://docs.oracle.com/cd/E24693_01/server.11203/e22490/dp_overview.htm)，仍需 SQLFILE 审查和真实导入确认；不把“允许生成计划”当作兼容性验收通过。Oracle41 的 RMAN 备份不能用 Linux Oracle 容器代替恢复。
+4. 默认独立运行根目录 `C:\core-backup\restore\oracle46_<演练号>` 或 `oracle41_<演练号>`，兼容旧 `D:\oracle-restore\<演练号>`。必须使用这些基础目录下的**独立子目录**，基础目录本身不能作为本轮根目录。不使用生产数据目录、网络盘、junction。251只有 C 盘约485GB，D盘是光驱；不要再选择D盘。空间至少覆盖本地备份暂存 + 恢复数据 + 临时/归档/redo 和余量，逐个演练并先核算实际空闲空间，不能只按压缩包大小或磁盘总容量估算。工具不会删除其他演练来腾空间。
 5. 46：用 DBCA 在专用根目录内创建空测试库 **RT46**，所有 datafile/tempfile/controlfile/redo 都位于该根目录，`job_queue_processes=0`。先创建 `REST_*` 目标表空间，数据文件也在根目录内。不要预创建本次映射的 `REST_*` 用户，避免混入旧数据。
 6. 41：用匹配 OracleHome 的 ORADIM 预创建专用 **OracleServiceRT41** 服务，但数据库应为未启动的辅助实例，`data` 目录为空；工具用生成 pfile 执行 NOMOUNT、备份式 DUPLICATE、RESETLOGS 开库。不能替换已有 RT41 演练。生成 OMF 数据文件和独立 redo/controlfile，不复制生产 spfile。
 
@@ -92,12 +92,13 @@ sudo python3 components/oracle/restore/restore_plan.py publish --receipt /privat
 | --- | --- |
 | schema_version/id/run/plan_sha256/source | 绑定资产、备份运行与审阅计划 |
 | status | `passed` 原生恢复及要求的检查均通过；`partial` 仅SQLFILE；`failed` 本轮异常 |
-| finished/seconds/target_ip/target_hostname | 本轮结束 UTC 时间、耗时和实际测试机 |
+| finished/sampled/seconds/target_ip/target_hostname/target_version | 本轮结束时间、发布观察时间（均UTC显式+00:00）、耗时和实际测试机/二进制版本 |
 | scope/phases | 明确 sample/full/rman 范围、每阶段状态及本地日志名称 |
 | business_acceptance | 固定 `not_tested`，人工业务验收另行记录，不能由 MD5/原生恢复替代 |
+| untested | 始终保留业务验收/应用连通未测；样本恢复标明全库未测；预览标明原生恢复/表检查未测；逻辑导入排除的环境元数据单列未测 |
 | deletion/production_change | `not_performed` / false |
 
-发布器拒绝缺少阶段证据的 `passed`，核对回执旁每个阶段日志的 SHA256，并拒绝旧结束时间覆盖新结果。回传时必须把引用日志和回执放在同一目录。这不是远程日志签名验证；负责人仍须核对原始日志和计划。现有8100模型能读 `status/finished/scope/phases`；采集器重新采集后才显示，不能只写回执就宣称已在页面出现。为避免旧通过掩盖新失败，失败结果也必须回传发布。日志会含对象名、路径，按私有运维资料保管，不对所有看板用户公开原文。
+发布器拒绝缺少阶段证据的 `passed`，核对回执旁每个阶段日志的 SHA256，并拒绝旧结束时间覆盖新结果。兼容旧 PS2 `.ToString('o')` 的7位小数/Z时间戳，截断至微秒并转换UTC；新worker用固定秒精度、Gregorian invariant culture与 `+00:00`。`sampled` 是本次读取并发布证据的时间，**不是重新恢复时间**；`finished` 保留真实结束时刻。回传时必须把引用日志和回执放在同一目录。这不是远程日志签名验证；负责人仍须核对原始日志和计划。现有8100 exporter可直接解析 `sampled` 并投影 `status/scope/untested/deletion`；采集器重新采集后才显示，不能只写回执就宣称已在页面出现。为避免旧通过掩盖新失败，失败结果也必须回传发布。日志会含对象名、路径，按私有运维资料保管，不对所有看板用户公开原文。
 
 ## 6. 本地验证与尚未完成项
 

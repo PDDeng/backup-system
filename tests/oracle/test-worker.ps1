@@ -37,6 +37,14 @@ try{
  $failed=$false
  try{& (Join-Path $tools 'invoke-restore.ps1') -PlanDirectory $temp -Execute}catch{$failed=$_.Exception.Message.Contains('Wrong test hostname')}
  Assert $failed 'Wrong host refuses before WMI/Oracle/NAS access'
+ try{. (Join-Path $tools 'invoke-restore.ps1') -PlanDirectory $temp}catch{if(-not $_.Exception.Message.Contains('PREPARED_ONLY')){throw}}
+ $culture=[Threading.Thread]::CurrentThread.CurrentCulture
+ try{
+  [Threading.Thread]::CurrentThread.CurrentCulture=New-Object Globalization.CultureInfo('ar-SA')
+  $stamp=UtcStamp
+  Assert ($stamp -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$') 'Explicit UTC timestamp without seven fractional digits'
+  Assert ($stamp.Substring(0,4) -eq [DateTime]::UtcNow.ToString('yyyy',[Globalization.CultureInfo]::InvariantCulture)) 'Invariant Gregorian year'
+ }finally{[Threading.Thread]::CurrentThread.CurrentCulture=$culture}
  Write-Output ('PASS assertions='+$count+'; local only; PS='+$PSVersionTable.PSVersion)
 }finally{
  # Only delete generated fixtures beneath the verified unique temp directory.

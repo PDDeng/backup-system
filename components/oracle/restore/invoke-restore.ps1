@@ -14,13 +14,14 @@ function Hash([string]$p){
  try{return ([BitConverter]::ToString($h.ComputeHash($s))).Replace('-','').ToLowerInvariant()}
  finally{$s.Close();$h.Clear()}
 }
-function Log([string]$s){[IO.File]::AppendAllText($script:log,([DateTime]::UtcNow.ToString('o')+' '+$s+"`r`n"),$utf8)}
+function UtcStamp{return [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'",[Globalization.CultureInfo]::InvariantCulture)}
+function Log([string]$s){[IO.File]::AppendAllText($script:log,((UtcStamp)+' '+$s+"`r`n"),$utf8)}
 function Native([string]$exe,[string[]]$arguments,[string]$name){
  $path=Join-Path $script:root $name
  $rc=[OracleRestoreNative]::Run($exe,$arguments,$path)
  if($rc -ne 0){throw ('Native failed '+$name+' rc='+$rc)}
  $text=[IO.File]::ReadAllText($path)
- if($text -match '(ORA-|RMAN-0[0-9]{4}:|SP2-|LRM-|UDI-)'){throw ('Native errors in '+$name)}
+ if($text -match '(ORA-|RMAN-0[0-9]{4}:|SP2-|LRM-|UDI-|UDE-)'){throw ('Native errors in '+$name)}
  return $text
 }
 function Phase([string]$name,[string]$file){$script:phases[$name]=@{status='passed';log=$file}}
@@ -34,11 +35,17 @@ if($env:COMPUTERNAME.ToUpperInvariant() -ne $c['target_hostname'].ToUpperInvaria
 $ips=@();Get-WmiObject Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' | ForEach-Object {$ips+=@($_.IPAddress)}
 if($ips -notcontains '10.10.10.251' -or $ips -contains '10.10.10.46' -or $ips -contains '10.10.10.41'){throw 'Wrong local machine IP'}
 $root=[IO.Path]::GetFullPath($c['root'])
-if($root -notmatch '^D:\\oracle-restore\\[A-Za-z0-9_.\\-]+$' -or $root.Contains('..')){throw 'Unsafe isolation root'}
+if($root -notmatch '^(C:\\core-backup\\restore|D:\\oracle-restore)\\[A-Za-z0-9_.\\-]+$' -or $root.Contains('..')){throw 'Unsafe isolation root'}
 if($m['id'] -ne $c['id'] -or $m['source'] -ne $c['source'] -or $m['status'] -ne 'complete'){throw 'Wrong manifest'}
 $hashes=ReadJson (Join-Path $PlanDirectory 'plan-hashes.json')
 foreach($name in $hashes.Keys){if($name -notmatch '^[a-z][a-z0-9.-]+$' -or (Hash (Join-Path $PlanDirectory $name)) -ne $hashes[$name]){throw 'Plan changed: regenerate and review'}}
 if(-not $hashes.ContainsKey('plan.json')){throw 'Unbound plan'}
+$expected=@('plan.json','guard.sql','verify.sql')
+if($c['id'] -eq 'oracle46'){$expected+=@('prepare.sql','preview.par','import.par')}else{$expected+=@('init.ora','startup.sql','duplicate.rman','validate.rman')}
+foreach($name in $expected){if(-not $hashes.ContainsKey($name)){throw ('Missing bound plan file '+$name)}}
+$targetVersion=$m['version'];if($c.ContainsKey('target_version')){$targetVersion=$c['target_version']}
+if($c['id'] -eq 'oracle41' -and $targetVersion -ne '11.2.0.4.0'){throw 'Wrong RMAN target version'}
+if($c['id'] -eq 'oracle46' -and @('11.2.0.1.0','11.2.0.4.0') -notcontains $targetVersion){throw 'Wrong Data Pump target version'}
 $planDigest=Hash $planFile
 $cursor=$root
 while($cursor){
@@ -72,7 +79,7 @@ try{
  [IO.File]::WriteAllText((Join-Path $env:TNS_ADMIN 'sqlnet.ora'),"SQLNET.AUTHENTICATION_SERVICES=(NTS)`r`n",$utf8)
  Log 'START isolated restore; source NAS read-only input; no cleanup'
  $version=Native $sqlplus @('-V') 'version.log'
- if(-not $version.Contains($m['version'])){throw 'Oracle binary version mismatch'}
+ if(-not $version.Contains($targetVersion)){throw 'Oracle binary version mismatch'}
  foreach($f in $m['files']){
   $name=$f['name'];if($name -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]{0,150}$' -or $name -eq '..'){throw 'Unsafe file name'}
   $src=Join-Path $c['source'] $name;$dst=Join-Path $stage $name
@@ -80,7 +87,7 @@ try{
   if((New-Object IO.FileInfo($src)).Length -ne $f['bytes']){throw ('Source size mismatch '+$name)}
   [IO.File]::Copy($src,$dst,$false)
   if((New-Object IO.FileInfo($dst)).Length -ne $f['bytes'] -or (Hash $dst) -ne $f['sha256']){throw ('SHA256 mismatch '+$name)}
-  if($f['role'] -eq 'export_log' -or $f['role'] -eq 'rman_log'){if([IO.File]::ReadAllText($dst) -match '(ORA-|RMAN-0[0-9]{4}:|LRM-|UDI-)'){throw 'Source native log not clean'}}
+  if($f['role'] -eq 'export_log' -or $f['role'] -eq 'rman_log'){if([IO.File]::ReadAllText($dst) -match '(ORA-|RMAN-0[0-9]{4}:|LRM-|UDI-|UDE-)'){throw 'Source native log not clean'}}
   Log ('SHA256_OK '+$name)
  }
  Phase 'source_sha256' 'worker.log'
@@ -100,7 +107,7 @@ try{
   else{
    Native $impdp @(('PARFILE='+(Join-Path $root 'import.par'))) 'import-native.log'|Out-Null
    $importLog=Join-Path $stage 'import.log'
-   if(-not [IO.File]::Exists($importLog) -or [IO.File]::ReadAllText($importLog) -match '(ORA-|UDI-|LRM-)'){throw 'Data Pump log missing/errors'}
+   if(-not [IO.File]::Exists($importLog) -or [IO.File]::ReadAllText($importLog) -match '(ORA-|UDI-|UDE-|LRM-)'){throw 'Data Pump log missing/errors'}
    Phase 'native_restore' 'import-native.log'
   }
  }else{
@@ -125,7 +132,9 @@ finally{
  try{
  $env:ORACLE_SID=$oldSid;$env:ORACLE_HOME=$oldHome;$env:LOCAL=$oldLocal;$env:TNS_ADMIN=$oldTns
  foreach($phase in $script:phases.Values){$phase['sha256']=Hash (Join-Path $root $phase['log'])}
- $r=@{schema_version=1;id=$c['id'];run=$m['run'];status=$status;production_change=$false;target_ip=$c['target_ip'];target_hostname=$c['target_hostname'];plan_sha256=$planDigest;finished=[DateTime]::UtcNow.ToString('o');seconds=([DateTime]::UtcNow-$started).TotalSeconds;scope=('isolated '+$c['mode']+' restore, SHA256, native tool and selected business table checks; business acceptance not performed');phases=$script:phases;error=$errorText;source=$c['source'];business_acceptance='not_tested';deletion='not_performed'}
+ $scope='isolated '+$c['mode']+' restore, SHA256, native tool and selected business table checks; business acceptance not performed'
+ if($PreviewOnly){$scope='SQLFILE preview only; no import, table checks, full restore or business acceptance performed'}
+ $r=@{schema_version=1;id=$c['id'];run=$m['run'];mode=$c['mode'];target_version=$targetVersion;status=$status;production_change=$false;target_ip=$c['target_ip'];target_hostname=$c['target_hostname'];plan_sha256=$planDigest;finished=(UtcStamp);seconds=([DateTime]::UtcNow-$started).TotalSeconds;scope=$scope;phases=$script:phases;error=$errorText;source=$c['source'];business_acceptance='not_tested';deletion='not_performed'}
  $tmp=$receipt+'.tmp';[IO.File]::WriteAllText($tmp,$json.Serialize($r),$utf8);if([IO.File]::Exists($receipt)){[IO.File]::Replace($tmp,$receipt,$null)}else{[IO.File]::Move($tmp,$receipt)}
  }finally{$lock.Close()}
 }

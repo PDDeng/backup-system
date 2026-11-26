@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import json
 import hashlib
+import datetime as dt
 import tempfile
 import subprocess
 import sys
@@ -39,6 +40,48 @@ class PlanTests(unittest.TestCase):
     def test_full(self):
         c,m=fixture();c["mode"]="full"
         self.assertIn("FULL=YES",mod.plan(c,m)["import.par"])
+
+    def test_c_drive_plan_and_separate_target_version(self):
+        for asset in ('oracle46','oracle41'):
+            c,m=fixture(asset);c['root']='C:\\core-backup\\restore\\'+asset+'_run01'
+            c['oracle_home']='C:\\app\\oracle\\product\\11.2.0\\dbhome_1';c['target_version']='11.2.0.4.0'
+            p=mod.plan(c,m)
+            self.assertIn("version='11.2.0.4.0'",p['guard.sql'])
+            loaded=json.loads(p['plan.json'])
+            self.assertEqual(loaded['manifest']['version'],mod.IDS[asset])
+            self.assertEqual(loaded['config']['target_version'],'11.2.0.4.0')
+            if asset=='oracle41':self.assertIn("C:\\core-backup\\restore",p['duplicate.rman'])
+        c,m=fixture();c['oracle_home']='C:\\app\\oracle';mod.plan(c,m)  # Cross-drive root/home safe.
+        for root in ('C:\\core-backup\\restore','C:\\core-backup\\restore-other\\r','C:\\Windows\\r','C:\\core-backup\\restore\\..\\prod','C:\\core-backup\\restore\\'):
+            c,m=fixture();c['root']=root
+            with self.subTest(root=root),self.assertRaises(ValueError):mod.plan(c,m)
+        c,m=fixture('oracle41');c['target_version']='11.2.0.1.0'
+        with self.assertRaises(ValueError):mod.plan(c,m)
+
+    def test_dotnet_seven_fraction_and_explicit_zones(self):
+        for text, expected in [('2026-11-26T02:18:43.8821433Z','2026-11-26T02:18:43.882143+00:00'),('2026-11-26T10:18:43.1234567+08:00','2026-11-26T02:18:43.123456+00:00'),('2026-11-26T02:18:43Z','2026-11-26T02:18:43+00:00')]:
+            with self.subTest(text=text):self.assertEqual(mod.parse_timestamp(text).isoformat(),expected)
+        for text in ('2026-11-26T02:18:43','invalid','2026-02-30T00:00:00Z',None,'2026-11-26T02:18:43.1234567890Z'):
+            with self.subTest(text=text),self.assertRaises(ValueError):mod.parse_timestamp(text)
+
+    def test_published_feed_contract_and_legacy_previous_timestamp(self):
+        e=dict(schema_version=1,id='oracle46',run='RUN_01',mode='sample',status='partial',production_change=False,target_ip='10.10.10.251',plan_sha256='b'*64,finished='2026-11-26T01:00:00.8821433Z',scope='SQLFILE only',phases={},deletion='not_performed')
+        with tempfile.TemporaryDirectory() as td:
+            previous=dict(e);previous['finished']='2026-11-26T00:59:00.9999999Z'
+            Path(td,'oracle46.json').write_text(json.dumps(previous))
+            record=json.loads(mod.publish(e,td).read_text())
+            # Same parsing/projection used by export_feed.py (without Z replacement).
+            stamp=dt.datetime.fromisoformat(record['sampled'])
+            self.assertLess(abs((dt.datetime.now(dt.timezone.utc)-stamp).total_seconds()),30)
+            self.assertTrue(record['sampled'].endswith('+00:00'))
+            self.assertEqual(record['finished'],'2026-11-26T01:00:00.882143+00:00')
+            projected={k:record[k] for k in ('sampled','status','scope','untested','deletion')}
+            self.assertEqual(projected['status'],'partial')
+            for untested in ('business_acceptance','application_connectivity','full_database_restore','native_restore','table_checks'):
+                self.assertIn(untested,projected['untested'])
+            self.assertEqual(e['finished'],'2026-11-26T01:00:00.8821433Z')  # Do not alter source receipt.
+            e['untested']='not an array'
+            with self.assertRaises(ValueError):mod.publish(e,td)
 
     def test_rman_no_source_connection_or_filename_bypass(self):
         c,m=fixture("oracle41");p=mod.plan(c,m)
