@@ -255,10 +255,12 @@ function render() {
   if (!data) return;
   const s = data.summary || { total: 0, delivered: 0, pending_verification: 0, attention: 0, restore_passed: 0 };
 
-  $('sample').textContent = '证据采样 ' + formatSampled(data.sampled) + ' · 来源 /api/board';
+  $('sample').textContent = '证据采样 ' + formatSampled(data.sampled);
   $('live').textContent = data.stale ? '证据过期' : data.collecting ? '正在采集' : '证据已连接';
   $('live').className = 'badge ' + (data.stale ? 'warn' : data.collecting ? 'info' : 'good');
-  $('foot-source').textContent = '数据来源：/api/board（snapshot.json 实时投影 + PostgreSQL 人工验收）· 采样时间 ' + formatSampled(data.sampled) + ' · 完成记录 ≠ 恢复验收，每 30 秒自动刷新展示。';
+  if ($('foot-source')) {
+    $('foot-source').textContent = '数据来源：/api/board（snapshot.json 实时投影 + PostgreSQL 人工验收）· 采样时间 ' + formatSampled(data.sampled) + ' · 完成记录 ≠ 恢复验收，每 30 秒自动刷新展示。';
+  }
 
   renderKpis(s);
   renderDailySummary(s);
@@ -302,7 +304,6 @@ function renderKpis(s) {
       label: '需备份（纳管资产）',
       value: s.total,
       ic: 'ic-stack',
-      def: '来源: snapshot.json 资产清单 · 口径: 全部纳管核心资产',
       extraNote: null,
       md5Count: 0
     },
@@ -311,7 +312,6 @@ function renderKpis(s) {
       label: '已备份',
       value: s.delivered,
       ic: 'ic-check-circle',
-      def: '来源: copies/transfers · 口径: 有效记录且无报错即已备份（待 MD5 不在此计）',
       extraNote: { label: '备份占比', val: ratio, title: '分母为需备份资产总数 (' + s.total + ' 项)' },
       md5Count: 0
     },
@@ -320,7 +320,6 @@ function renderKpis(s) {
       label: '失败待处理',
       value: s.attention,
       ic: 'ic-warning',
-      def: '来源: model.project 校验规则 · 口径: 缺副本/超期/连接或批次异常',
       extraNote: null,
       md5Count: 0
     },
@@ -329,7 +328,6 @@ function renderKpis(s) {
       label: '恢复通过',
       value: s.restore_passed,
       ic: 'ic-shield-check',
-      def: '来源: snapshot.json restore · 口径: 仅计原生恢复 passed',
       extraNote: null,
       md5Count: 0
     }
@@ -364,10 +362,7 @@ function renderKpis(s) {
       top.append(noteBox);
     }
 
-    const defLine = node('span', item.def, 'metric-def');
-    defLine.title = item.def;
-
-    btn.append(top, defLine, icon('ic-arrow-up-right', 'metric-jump'));
+    btn.append(top, icon('ic-arrow-up-right', 'metric-jump'));
     kpis.append(btn);
   }
 }
@@ -639,7 +634,7 @@ function renderSmbBrowser() {
   if (!shares.some(s => s.id === activeSmbShareId)) activeSmbShareId = shares[0].id;
   const activeShare = shares.find(s => s.id === activeSmbShareId) || shares[0];
   if (uncEl) uncEl.textContent = activeShare.unc || activeShare.id;
-  if ($('smb-provenance') && browser.sampled) {
+  if ($('smb-provenance') && !$('smb-provenance').hidden && browser.sampled) {
     $('smb-provenance').textContent = '来源：ops253 只读挂载实时采样（' + formatSampled(browser.sampled) + '）· 三端共享路径直览，不暴露任何凭据';
   }
 
@@ -1048,7 +1043,7 @@ function renderDrawerResult(container, asset) {
     tile.append(sp, node('strong', val));
     stats.append(tile);
   }
-  ov.append(ovHead, stats, node('p', '来源：snapshot.json 实时投影（model.project）；三项分别计量，不互相替代。', 'source-note'));
+  ov.append(ovHead, stats);
   container.append(ov);
 
   // Targets card
@@ -1087,7 +1082,7 @@ function renderDrawerResult(container, asset) {
     addMetaRow(dl, '上次正式完成', currentCopy.last_published_date || '无记录');
     addMetaRow(dl, '未完成目录数', String(currentCopy.partials ?? 0));
 
-    tCard.append(tHead, switcher, dl, node('p', '来源：snapshot.json copies / transfers 字段（含待 MD5 的大小核对记录）。', 'source-note'));
+    tCard.append(tHead, switcher, dl);
   }
   container.append(tCard);
 
@@ -1096,7 +1091,7 @@ function renderDrawerResult(container, asset) {
   const sHead = node('div', undefined, 'detail-title');
   const sH3 = node('h3');
   sH3.append(icon('ic-terminal-window'), '源端诊断与调度');
-  sHead.append(sH3, node('small', '来源：execution / diagnosis / schedule'));
+  sHead.append(sH3);
   const sdl = node('dl', undefined, 'detail-meta');
   addMetaRow(sdl, '源端连接', asset.connection === 'ok' ? '连接通过 (ok)' : '连接待确认 (' + (asset.connection || 'unknown') + ')');
   addMetaRow(sdl, '源端耗时', typeof asset.seconds === 'number' ? asset.seconds.toFixed(1) + ' 秒' : '未采集');
@@ -1143,7 +1138,7 @@ function renderDrawerRestore(container, asset) {
   addMetaRow(rdl, '状态码', (asset.restore && asset.restore.status) || 'not_tested');
   addMetaRow(rdl, '完成时间', (asset.restore && asset.restore.finished) || '尚无完成时间');
   addMetaRow(rdl, '验证范围', (asset.restore && asset.restore.scope) || '尚无范围说明', true);
-  rCard.append(rHead, rdl, node('p', '来源：snapshot.json restore 字段（由隔离恢复观测脚本输出）。当前前端仅展示原生技术恢复结果。', 'source-note'));
+  rCard.append(rHead, rdl);
   container.append(rCard);
 }
 
@@ -1344,10 +1339,10 @@ $('detaildialog').addEventListener('click', e => {
   if (e.target === $('detaildialog')) closeDrawer();
 });
 
-$('glossary-btn').onclick = () => $('glossarydialog').showModal();
-$('foot-glossary').onclick = () => $('glossarydialog').showModal();
-$('closeglossary').onclick = () => $('glossarydialog').close();
-$('okglossary').onclick = () => $('glossarydialog').close();
+if ($('glossary-btn')) $('glossary-btn').onclick = () => $('glossarydialog').showModal();
+if ($('foot-glossary')) $('foot-glossary').onclick = () => $('glossarydialog').showModal();
+if ($('closeglossary')) $('closeglossary').onclick = () => $('glossarydialog').close();
+if ($('okglossary')) $('okglossary').onclick = () => $('glossarydialog').close();
 
 $('closeusers').onclick = () => $('usersdialog').close();
 if ($('webhook-btn')) $('webhook-btn').onclick = openWebhookDialog;

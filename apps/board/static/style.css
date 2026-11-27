@@ -182,12 +182,12 @@ h1 { font-size: clamp(20px, 1.7vw, 32px); letter-spacing: .02em; line-height: 1.
   min-width: 0;
   text-align: left;
   width: 100%;
-  min-height: clamp(106px, 6.8vw, 130px);
+  min-height: clamp(92px, 5.8vw, 112px);
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 6px;
-  padding: 12px clamp(13px, 1.35vw, 24px);
+  padding: 14px clamp(13px, 1.35vw, 24px);
   border: 1px solid var(--metric-edge);
   border-radius: 15px;
   color: var(--metric-fg);
@@ -1085,7 +1085,7 @@ dialog { color: var(--ink); font: inherit; }
   h1 { font-size: 19px; }
   .clock-tag { display: none; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .metric { min-height: 86px; padding: 10px; }
+  .metric { min-height: 76px; padding: 10px; }
   .metric-disc { width: 34px; }
   .metric-value strong { font-size: 28px; }
   .metric-value .md5-note { display: none; }
